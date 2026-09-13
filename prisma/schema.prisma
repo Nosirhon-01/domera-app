@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  MANAGER
+  AGENT
+}
+
+enum PropertyType {
+  OFFICE
+  SHOP
+  RESTAURANT
+  WAREHOUSE
+  LAND
+  BUILDING
+  BUSINESS_CENTER
+  OTHER
+}
+
+enum PropertyPurpose {
+  SALE
+  RENT
+  SALE_AND_RENT
+}
+
+enum PropertyStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+  RENTED
+  INACTIVE
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  phone         String?        @unique
+  email         String?        @unique
+  password      String
+  role          Role           @default(USER)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  properties    Property[]     @relation("UserProperties")
+  favorites     Favorite[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Property {
+  id           String          @id @default(uuid())
+  title        String
+  description  String          @db.Text
+  propertyType PropertyType
+  purpose      PropertyPurpose
+  price        Float
+  currency     String          @default("USD")
+  area         Float
+  address      String
+  latitude     Float?
+  longitude    Float?
+  status       PropertyStatus  @default(AVAILABLE)
+  ownerId      String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  owner        User            @relation("UserProperties", fields: [ownerId], references: [id], onDelete: Cascade)
+  images       PropertyImage[]
+  favorites    Favorite[]
+
+  @@index([propertyType])
+  @@index([purpose])
+  @@index([status])
+  @@index([price])
+  @@map("properties")
+}
+
+model PropertyImage {
+  id         String   @id @default(uuid())
+  propertyId String
+  url        String
+  sortOrder  Int      @default(0)
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("property_images")
+}
+
+model Favorite {
+  id         String   @id @default(uuid())
+  userId     String
+  propertyId String
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@index([userId])
+  @@index([propertyId])
+  @@map("favorites")
+}

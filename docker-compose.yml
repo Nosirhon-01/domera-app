@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: domera_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: domera_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: domera_backend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      API_PREFIX: api
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/domera_db?schema=public
+      JWT_ACCESS_SECRET: domera_super_secret_access_key_2026_change_in_prod
+      JWT_REFRESH_SECRET: domera_super_secret_refresh_key_2026_change_in_prod
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      ADMIN_NAME: "Admin User"
+      ADMIN_EMAIL: "admin@domera.com"
+      ADMIN_PHONE: "+998900000000"
+      ADMIN_PASSWORD: "AdminPassword123!"
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
