@@ -11,6 +11,8 @@ import { PropertyImagesModule } from './property-images/property-images.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { HealthModule } from './health/health.module';
+import { AgentsModule } from './agents/agents.module';
+import { ConversationsModule } from './conversations/conversations.module';
 
 @Module({
   imports: [
@@ -33,6 +35,8 @@ import { HealthModule } from './health/health.module';
     FavoritesModule,
     UploadsModule,
     HealthModule,
+    AgentsModule,
+    ConversationsModule,
   ],
 })
 export class AppModule {}

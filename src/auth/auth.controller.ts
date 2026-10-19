@@ -1,9 +1,10 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -55,5 +56,26 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Current user profile' })
   getMe(@CurrentUser('id') userId: string) {
     return this.authService.getMe(userId);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update own profile (name, phone, email, password, avatar, bio)' })
+  @ApiResponse({ status: 200, description: 'Profile updated successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  updateMe(@CurrentUser('id') userId: string, @Body() updateMeDto: UpdateMeDto) {
+    return this.authService.updateMe(userId, updateMeDto);
+  }
+
+  @Delete('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete own account permanently (required by App Store)' })
+  @ApiResponse({ status: 200, description: 'Account successfully deleted' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  deleteMe(@CurrentUser('id') userId: string) {
+    return this.authService.deleteMe(userId);
   }
 }

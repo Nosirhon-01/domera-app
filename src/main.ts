@@ -22,7 +22,12 @@ async function bootstrap() {
   app.setGlobalPrefix(apiPrefix);
 
   // Security Middleware
-  app.use(helmet());
+  app.use(
+  helmet({
+    hsts: false,
+    contentSecurityPolicy: false,
+  }),
+);
   app.enableCors({
     origin: corsOrigins.includes('*') ? true : corsOrigins,
     credentials: true,

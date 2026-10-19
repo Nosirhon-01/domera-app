@@ -6,6 +6,7 @@ import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdateMeDto } from './dto/update-me.dto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -142,6 +143,31 @@ export class AuthService {
 
   async getMe(userId: string) {
     return this.usersService.findById(userId);
+  }
+
+  async updateMe(userId: string, dto: UpdateMeDto) {
+    const { password, ...rest } = dto;
+    const data: any = { ...rest };
+
+    if (password) {
+      data.password = await bcrypt.hash(password, 10);
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+
+    const { password: _, ...result } = updatedUser;
+    return { message: 'Profile updated successfully', user: result };
+  }
+
+  async deleteMe(userId: string) {
+    // Revoke all refresh tokens first
+    await this.prisma.refreshToken.deleteMany({ where: { userId } });
+    // Delete user account
+    await this.prisma.user.delete({ where: { id: userId } });
+    return { message: 'Account successfully deleted' };
   }
 
   private async generateTokens(userId: string, role: string, email?: string, phone?: string) {
