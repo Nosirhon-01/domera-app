@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+
 import {
   ApiTags,
   ApiOperation,
@@ -121,5 +122,23 @@ export class ConversationsController {
     @Body() dto: SendMessageDto,
   ) {
     return this.conversationsService.sendMessage(conversationId, userId, dto);
+  }
+
+  @Patch(':id/read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Mark all messages in conversation as read',
+    description:
+      'Marks all unread messages in the conversation as read. Only marks messages sent by the OTHER participant. Idempotent.',
+  })
+  @ApiParam({ name: 'id', description: 'Conversation UUID' })
+  @ApiResponse({ status: 200, description: 'Messages marked as read', schema: { example: { message: '3 message(s) marked as read', updatedCount: 3 } } })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Conversation not found or not a participant' })
+  markAsRead(
+    @Param('id') conversationId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.conversationsService.markConversationAsRead(conversationId, userId);
   }
 }

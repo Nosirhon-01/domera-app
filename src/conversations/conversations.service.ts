@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ConversationsService {
@@ -75,16 +76,14 @@ export class ConversationsService {
     const { page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
 
+    const conversationWhere: Prisma.ConversationWhereInput = {
+      participants: { some: { userId: currentUserId } },
+    };
+
     const [total, conversations] = await Promise.all([
-      this.prisma.conversation.count({
-        where: {
-          participants: { some: { userId: currentUserId } },
-        },
-      }),
+      this.prisma.conversation.count({ where: conversationWhere }),
       this.prisma.conversation.findMany({
-        where: {
-          participants: { some: { userId: currentUserId } },
-        },
+        where: conversationWhere,
         orderBy: { updatedAt: 'desc' },
         skip,
         take: limit,
@@ -92,8 +91,24 @@ export class ConversationsService {
       }),
     ]);
 
+    // Fetch unread counts for all conversations in one query
+    const conversationIds = conversations.map((c) => c.id);
+    const unreadCounts = await this.prisma.message.groupBy({
+      by: ['conversationId'],
+      where: {
+        conversationId: { in: conversationIds },
+        senderId: { not: currentUserId },
+        readAt: null,
+      },
+      _count: { id: true },
+    });
+
+    const unreadMap = new Map(unreadCounts.map((u) => [u.conversationId, u._count.id]));
+
     return {
-      items: conversations.map((c) => this.formatConversation(c, currentUserId)),
+      items: conversations.map((c) =>
+        this.formatConversation(c, currentUserId, unreadMap.get(c.id) ?? 0),
+      ),
       meta: {
         page,
         limit,
@@ -108,7 +123,39 @@ export class ConversationsService {
    */
   async getConversation(conversationId: string, currentUserId: string) {
     const conversation = await this.findConversationForUser(conversationId, currentUserId);
-    return this.formatConversation(conversation, currentUserId);
+
+    const unreadCount = await this.prisma.message.count({
+      where: {
+        conversationId,
+        senderId: { not: currentUserId },
+        readAt: null,
+      },
+    });
+
+    return this.formatConversation(conversation, currentUserId, unreadCount);
+  }
+
+  /**
+   * Mark ALL unread messages in a conversation as read.
+   * Only marks messages where the current user is NOT the sender.
+   */
+  async markConversationAsRead(conversationId: string, currentUserId: string) {
+    // Ensure user is a participant (IDOR safe — throws 404 if not)
+    await this.findConversationForUser(conversationId, currentUserId);
+
+    const result = await this.prisma.message.updateMany({
+      where: {
+        conversationId,
+        senderId: { not: currentUserId },
+        readAt: null,
+      },
+      data: { readAt: new Date() },
+    });
+
+    return {
+      message: `${result.count} message(s) marked as read`,
+      updatedCount: result.count,
+    };
   }
 
   /**
@@ -295,7 +342,7 @@ export class ConversationsService {
     };
   }
 
-  private formatConversation(conversation: any, currentUserId: string) {
+  private formatConversation(conversation: any, currentUserId: string, unreadCount = 0) {
     const otherParticipants = conversation.participants
       .filter((p: any) => p.userId !== currentUserId)
       .map((p: any) => p.user);
@@ -309,6 +356,7 @@ export class ConversationsService {
       participants: conversation.participants.map((p: any) => p.user),
       otherParticipants,
       lastMessage,
+      unreadCount,
     };
   }
 }
