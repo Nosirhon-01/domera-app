@@ -21,7 +21,7 @@ export class MessagesController {
   @ApiResponse({ status: 200, description: 'Message marked as read' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Sender cannot mark their own message as read' })
-  @ApiResponse({ status: 404, description: 'Message not found' })
+  @ApiResponse({ status: 404, description: 'Message not found (or not a participant)' })
   markAsRead(@Param('id') messageId: string, @CurrentUser('id') userId: string) {
     return this.conversationsService.markMessageAsRead(messageId, userId);
   }

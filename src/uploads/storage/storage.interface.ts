@@ -1,5 +1,5 @@
 export interface StorageProvider {
-  uploadFile(file: Express.Multer.File, folder?: string): Promise<{ url: string; filename: string }>;
+  uploadFile(file: Express.Multer.File, folder?: string, extension?: string): Promise<{ url: string; filename: string }>;
   deleteFile(fileKey: string): Promise<boolean>;
 }
 

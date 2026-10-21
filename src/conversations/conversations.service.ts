@@ -29,16 +29,44 @@ export class ConversationsService {
       throw new BadRequestException('Cannot start a conversation with yourself');
     }
 
-    // Verify the other participant exists
+    // Verify the other participant exists and is active
     const otherUser = await this.prisma.user.findUnique({
       where: { id: participantId },
     });
-    if (!otherUser) {
+    if (!otherUser || !otherUser.isActive) {
       throw new NotFoundException(`User with ID '${participantId}' not found`);
     }
 
+    // Serialize create-or-get per user pair: without the lock, two concurrent requests
+    // (double tap, retry) could both see "no conversation" and create duplicates.
+    const pairKey = [currentUserId, participantId].sort().join(':');
+    const { conversation, created } = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pairKey}))`;
+
+      const existing = await this.findDirectConversation(tx, currentUserId, participantId);
+      if (existing) {
+        return { conversation: existing, created: false };
+      }
+
+      // Create new conversation with both participants
+      const newConversation = await tx.conversation.create({
+        data: {
+          participants: {
+            create: [{ userId: currentUserId }, { userId: participantId }],
+          },
+        },
+        include: this.conversationInclude(currentUserId),
+      });
+      return { conversation: newConversation, created: true };
+    });
+
+    const unreadCount = created ? 0 : await this.countUnread(conversation.id, currentUserId);
+    return this.formatConversation(conversation, currentUserId, unreadCount);
+  }
+
+  private findDirectConversation(tx: Prisma.TransactionClient, currentUserId: string, participantId: string) {
     // Check if a conversation already exists between exactly these two users
-    const existing = await this.prisma.conversation.findFirst({
+    return tx.conversation.findFirst({
       where: {
         AND: [
           {
@@ -55,22 +83,16 @@ export class ConversationsService {
       },
       include: this.conversationInclude(currentUserId),
     });
+  }
 
-    if (existing) {
-      return this.formatConversation(existing, currentUserId);
-    }
-
-    // Create new conversation with both participants
-    const conversation = await this.prisma.conversation.create({
-      data: {
-        participants: {
-          create: [{ userId: currentUserId }, { userId: participantId }],
-        },
+  private countUnread(conversationId: string, currentUserId: string) {
+    return this.prisma.message.count({
+      where: {
+        conversationId,
+        senderId: { not: currentUserId },
+        readAt: null,
       },
-      include: this.conversationInclude(currentUserId),
     });
-
-    return this.formatConversation(conversation, currentUserId);
   }
 
   /**
@@ -128,13 +150,7 @@ export class ConversationsService {
   async getConversation(conversationId: string, currentUserId: string) {
     const conversation = await this.findConversationForUser(conversationId, currentUserId);
 
-    const unreadCount = await this.prisma.message.count({
-      where: {
-        conversationId,
-        senderId: { not: currentUserId },
-        readAt: null,
-      },
-    });
+    const unreadCount = await this.countUnread(conversationId, currentUserId);
 
     return this.formatConversation(conversation, currentUserId, unreadCount);
   }
@@ -281,12 +297,12 @@ export class ConversationsService {
       throw new NotFoundException(`Message with ID '${messageId}' not found`);
     }
 
-    // Verify user is a participant
+    // Non-participants get the same 404 as a missing message (IDOR safe — does not leak existence)
     const isParticipant = message.conversation.participants.some(
       (p) => p.userId === currentUserId,
     );
     if (!isParticipant) {
-      throw new ForbiddenException('You are not a participant of this conversation');
+      throw new NotFoundException(`Message with ID '${messageId}' not found`);
     }
 
     // Sender cannot mark their own message as read
@@ -294,13 +310,14 @@ export class ConversationsService {
       throw new ForbiddenException('Sender cannot mark their own message as read');
     }
 
-    if (message.readAt) {
-      return message; // already read, idempotent
-    }
-
-    return this.prisma.message.update({
-      where: { id: messageId },
+    // Conditional update: idempotent and keeps the first readAt under concurrent calls
+    await this.prisma.message.updateMany({
+      where: { id: messageId, readAt: null },
       data: { readAt: new Date() },
+    });
+
+    return this.prisma.message.findUnique({
+      where: { id: messageId },
       include: {
         sender: {
           select: { id: true, name: true, avatar: true, role: true },

@@ -10,7 +10,10 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createUserDto: CreateUserDto): Promise<Omit<User, 'password'>> {
-    const { email, phone, password, ...rest } = createUserDto;
+    const { email: rawEmail, phone: rawPhone, password, ...rest } = createUserDto;
+    // Normalize before the duplicate check so "User@Mail.com" and "user@mail.com" are the same account
+    const email = rawEmail ? rawEmail.toLowerCase().trim() : undefined;
+    const phone = rawPhone ? rawPhone.trim() : undefined;
 
     if (!email && !phone) {
       throw new ConflictException('Either email or phone must be provided');
@@ -35,8 +38,8 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: {
         ...rest,
-        email: email ? email.toLowerCase().trim() : null,
-        phone: phone ? phone.trim() : null,
+        email: email ?? null,
+        phone: phone ?? null,
         password: hashedPassword,
       },
     });
@@ -103,6 +106,12 @@ export class UsersService {
 
     if (updateUserDto.password) {
       updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
+    }
+    if (updateUserDto.email) {
+      updateUserDto.email = updateUserDto.email.toLowerCase().trim();
+    }
+    if (updateUserDto.phone) {
+      updateUserDto.phone = updateUserDto.phone.trim();
     }
 
     const updatedUser = await this.prisma.user.update({

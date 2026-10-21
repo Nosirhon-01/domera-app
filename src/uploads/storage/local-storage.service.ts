@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StorageProvider } from './storage.interface';
 import * as fs from 'fs';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class LocalStorageService implements StorageProvider {
@@ -15,14 +15,21 @@ export class LocalStorageService implements StorageProvider {
     }
   }
 
-  async uploadFile(file: Express.Multer.File, folder: string = 'properties'): Promise<{ url: string; filename: string }> {
-    const targetDir = path.join(this.uploadDir, folder);
+  async uploadFile(
+    file: Express.Multer.File,
+    folder: string = 'properties',
+    extension?: string,
+  ): Promise<{ url: string; filename: string }> {
+    const targetDir = this.resolveInsideUploads(folder);
+    if (!targetDir) {
+      throw new Error(`Invalid upload folder '${folder}'`);
+    }
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const fileExt = path.extname(file.originalname);
-    const filename = `${uuidv4()}${fileExt}`;
+    const fileExt = extension ?? path.extname(file.originalname);
+    const filename = `${randomUUID()}${fileExt}`;
     const filePath = path.join(targetDir, filename);
 
     await fs.promises.writeFile(filePath, file.buffer);
@@ -39,9 +46,13 @@ export class LocalStorageService implements StorageProvider {
   async deleteFile(fileUrl: string): Promise<boolean> {
     try {
       const relativePath = fileUrl.startsWith('/uploads/') ? fileUrl.replace('/uploads/', '') : fileUrl;
-      const fullPath = path.join(this.uploadDir, relativePath);
+      const fullPath = this.resolveInsideUploads(relativePath);
+      if (!fullPath) {
+        this.logger.warn(`Refusing to delete path outside uploads directory: '${fileUrl}'`);
+        return false;
+      }
 
-      if (fs.existsSync(fullPath)) {
+      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
         await fs.promises.unlink(fullPath);
         return true;
       }
@@ -50,5 +61,11 @@ export class LocalStorageService implements StorageProvider {
       this.logger.error(`Error deleting file '${fileUrl}':`, error);
       return false;
     }
+  }
+
+  /** Resolve a path under uploads/ and reject anything that escapes it (e.g. "../../.env"). */
+  private resolveInsideUploads(relativePath: string): string | null {
+    const fullPath = path.resolve(this.uploadDir, relativePath);
+    return fullPath.startsWith(this.uploadDir + path.sep) ? fullPath : null;
   }
 }

@@ -68,5 +68,15 @@ export function validate(config: Record<string, unknown>) {
   if (errors.length > 0) {
     throw new Error(`Environment validation error: ${errors.toString()}`);
   }
+
+  // Warn (do not fail — that would take production down) about weak JWT secrets
+  if (validatedConfig.NODE_ENV === Environment.Production) {
+    for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+      const value = validatedConfig[key];
+      if (value.length < 32 || value.includes('change_in_prod')) {
+        console.warn(`[SECURITY WARNING] ${key} is weak or a placeholder. Set a random value of 32+ characters.`);
+      }
+    }
+  }
   return validatedConfig;
 }

@@ -15,6 +15,12 @@ import { AgentsModule } from './agents/agents.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
+function throttleTtlMs(value?: string): number {
+  const n = Number(value);
+  if (!n) return 60_000;
+  return n < 1000 ? n * 1000 : n;
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -24,15 +30,16 @@ import { NotificationsModule } from './notifications/notifications.module';
     }),
     ThrottlerModule.forRoot([
       {
-        ttl: Number(process.env.THROTTLE_TTL) || 60000,
+        // @nestjs/throttler v5 expects milliseconds; .env.example gives seconds (60)
+        ttl: throttleTtlMs(process.env.THROTTLE_TTL),
         limit: Number(process.env.THROTTLE_LIMIT) || 100,
       },
     ]),
     PrismaModule,
     AuthModule,
     UsersModule,
-    // Must be registered before PropertiesModule so that
-    // DELETE /properties/images/:imageId is not captured by DELETE /properties/:id
+    // Listed before PropertiesModule to make it explicit that DELETE /properties/images/:imageId
+    // must be registered before DELETE /properties/:id (PropertiesModule also imports it).
     PropertyImagesModule,
     PropertiesModule,
     FavoritesModule,

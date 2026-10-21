@@ -7,6 +7,12 @@ dotenv.config();
 const prisma = new PrismaClient();
 
 async function main() {
+  // Never seed production by accident (would create a test agent with a known password)
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PRODUCTION_SEED !== 'true') {
+    console.error('[SEED ABORTED] NODE_ENV=production. Set ALLOW_PRODUCTION_SEED=true only if you really mean it.');
+    process.exit(1);
+  }
+
   // ─── 1. Admin seed ────────────────────────────────────────────────────────
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@domera.com';
   const adminPhone = process.env.ADMIN_PHONE || '+998900000000';
@@ -17,11 +23,8 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: {
-      password: hashedAdminPassword,
-      role: Role.ADMIN,
-      isActive: true,
-    },
+    // Existing admin is left untouched — re-running the seed must not reset a changed password
+    update: {},
     create: {
       name: adminName,
       email: adminEmail,
@@ -34,7 +37,11 @@ async function main() {
 
   console.log(`[SEED SUCCESS] Admin user initialized: ${admin.email} (ID: ${admin.id})`);
 
-  // ─── 2. Agent test account (Flutter developer test) ───────────────────────
+  // ─── 2. Agent test account (Flutter developer test) — never in production ─
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
   const agentEmail = 'agent.test@domera.uz';
   const agentPhone = '+998901234567';
   const agentName = 'Test Agent';

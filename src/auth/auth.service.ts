@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -83,6 +83,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
+    if (!payload?.tokenId || !payload?.sub) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
     const storedToken = await this.prisma.refreshToken.findFirst({
       where: {
         id: payload.tokenId,
@@ -101,13 +105,21 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token does not match');
     }
 
-    // Revoke old token (Token Rotation)
-    await this.prisma.refreshToken.update({
-      where: { id: storedToken.id },
+    // Revoke old token (Token Rotation). Conditional update makes this atomic:
+    // if two requests use the same refresh token concurrently, only one wins.
+    const revoked = await this.prisma.refreshToken.updateMany({
+      where: { id: storedToken.id, isRevoked: false },
       data: { isRevoked: true },
     });
+    if (revoked.count === 0) {
+      throw new UnauthorizedException('Refresh token is invalid or revoked');
+    }
 
-    const user = await this.usersService.findById(payload.sub);
+    const fullUser = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!fullUser || !fullUser.isActive) {
+      throw new UnauthorizedException('User is inactive or no longer exists');
+    }
+    const { password: _, ...user } = fullUser;
     const newTokens = await this.generateTokens(user.id, user.role, user.email, user.phone);
     await this.saveRefreshToken(user.id, newTokens.refreshToken);
 
@@ -119,19 +131,24 @@ export class AuthService {
   }
 
   async logout(userId: string, refreshToken?: string) {
+    let tokenId: string | undefined;
     if (refreshToken) {
       try {
         const payload: any = this.jwtService.decode(refreshToken);
-        if (payload?.tokenId) {
-          await this.prisma.refreshToken.updateMany({
-            where: { id: payload.tokenId, userId },
-            data: { isRevoked: true },
-          });
-        }
+        tokenId = payload?.tokenId;
       } catch {
-        // Fallback: revoke all active tokens for this user
+        tokenId = undefined;
       }
+    }
+
+    if (tokenId) {
+      // Revoke only this device's session (scoped to the user — cannot revoke someone else's token)
+      await this.prisma.refreshToken.updateMany({
+        where: { id: tokenId, userId },
+        data: { isRevoked: true },
+      });
     } else {
+      // No (parsable) refresh token: revoke all active sessions of this user
       await this.prisma.refreshToken.updateMany({
         where: { userId, isRevoked: false },
         data: { isRevoked: true },
@@ -148,6 +165,21 @@ export class AuthService {
   async updateMe(userId: string, dto: UpdateMeDto) {
     const { password, ...rest } = dto;
     const data: any = { ...rest };
+
+    if (rest.email !== undefined) {
+      data.email = rest.email.toLowerCase().trim();
+      const taken = await this.prisma.user.findFirst({ where: { email: data.email, NOT: { id: userId } } });
+      if (taken) {
+        throw new ConflictException('User with this email already exists');
+      }
+    }
+    if (rest.phone !== undefined) {
+      data.phone = rest.phone.trim();
+      const taken = await this.prisma.user.findFirst({ where: { phone: data.phone, NOT: { id: userId } } });
+      if (taken) {
+        throw new ConflictException('User with this phone number already exists');
+      }
+    }
 
     if (password) {
       data.password = await bcrypt.hash(password, 10);
@@ -211,7 +243,8 @@ export class AuthService {
       const tokenHash = await bcrypt.hash(refreshToken, 10);
       await this.prisma.refreshToken.update({
         where: { id: payload.tokenId },
-        data: { tokenHash },
+        // Keep DB expiry in sync with JWT_REFRESH_EXPIRES_IN (record is created with a 7-day placeholder)
+        data: { tokenHash, ...(payload.exp ? { expiresAt: new Date(payload.exp * 1000) } : {}) },
       });
     }
   }

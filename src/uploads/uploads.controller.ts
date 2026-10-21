@@ -1,7 +1,7 @@
 import { Controller, Post, UseInterceptors, UploadedFile, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { UploadsService } from './uploads.service';
+import { UploadsService, MAX_IMAGE_SIZE } from './uploads.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Uploads')
@@ -12,7 +12,8 @@ export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}
 
   @Post('image')
-  @UseInterceptors(FileInterceptor('file'))
+  // Reject oversized files while streaming, before they are buffered into memory
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE_SIZE, files: 1 } }))
   @ApiOperation({ summary: 'Upload an image file (JPEG, PNG, WebP max 5MB)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

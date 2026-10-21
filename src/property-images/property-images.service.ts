@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { CreatePropertyImageDto } from './dto/create-property-image.dto';
 import { Role } from '@prisma/client';
 
 @Injectable()
 export class PropertyImagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadsService: UploadsService,
+  ) {}
 
   async addImage(propertyId: string, userId: string, userRole: Role, dto: CreatePropertyImageDto) {
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
@@ -49,7 +53,18 @@ export class PropertyImagesService {
       throw new ForbiddenException('You do not have permission to delete this image');
     }
 
+    // Delete only this image row — the property and its other images are untouched
     await this.prisma.propertyImage.delete({ where: { id: imageId } });
+
+    // Best-effort file cleanup after the DB delete succeeded. Keep the file if another
+    // image row still points to it; a failed unlink only leaves an orphan file.
+    if (image.url.startsWith('/uploads/')) {
+      const stillUsed = await this.prisma.propertyImage.count({ where: { url: image.url } });
+      if (!stillUsed) {
+        await this.uploadsService.deleteFile(image.url);
+      }
+    }
+
     return { message: 'Image deleted successfully' };
   }
 

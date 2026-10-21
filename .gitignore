@@ -32,9 +32,11 @@ lerna-debug.log*
 # Coverage
 /coverage
 
-# Database
-prisma/migrations/
-!prisma/migrations/.gitkeep
+# Database dumps (prisma/migrations IS version-controlled — it is the production schema history)
+*.sql.gz
+*.dump
+backup_*.sql
+backups/
 
 # Firebase credentials
 firebase-service-account*.json

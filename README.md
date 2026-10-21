@@ -112,7 +112,9 @@ docker-compose up -d --build
 ```
 This will start PostgreSQL 16 (bound to `127.0.0.1:5432`), the NestJS backend on port `3000`, and Caddy (HTTPS) on ports `80`/`443`.
 
-On startup the backend container runs `prisma db push`, so new tables/columns are created automatically after each deploy (set `DB_SYNC_ON_START=false` to skip).
+On startup the backend container runs `prisma migrate deploy` (version-controlled migrations in `prisma/migrations`; set `RUN_MIGRATIONS=false` to skip). A database created before migrations were tracked must be baselined once — see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+> Production runs on PM2, not Docker. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for the production procedure.
 
 ### HTTPS
 1. Point a domain's DNS A record (e.g. `api.domera.uz`) to the server and open ports 80 and 443.

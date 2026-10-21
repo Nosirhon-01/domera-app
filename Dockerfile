@@ -39,8 +39,8 @@ RUN mkdir -p uploads
 
 EXPOSE 3000
 
-# Sync the database schema with prisma/schema.prisma before starting, so new
-# tables/columns (conversations, messages, avatar, bio, ...) exist after a deploy.
-# `db push` refuses destructive changes, so it never drops data silently.
-# Set DB_SYNC_ON_START=false to skip.
-CMD ["sh", "-c", "if [ \"$DB_SYNC_ON_START\" != \"false\" ]; then npx prisma db push --skip-generate || exit 1; fi; exec node dist/main.js"]
+# Apply reviewed, version-controlled migrations (prisma/migrations) before starting.
+# For a database that existed before migrations were tracked, baseline it once first:
+#   npx prisma migrate resolve --applied 0_init   (see DEPLOYMENT.md)
+# Set RUN_MIGRATIONS=false to skip.
+CMD ["sh", "-c", "if [ \"$RUN_MIGRATIONS\" != \"false\" ]; then npx prisma migrate deploy || exit 1; fi; exec node dist/main.js"]
