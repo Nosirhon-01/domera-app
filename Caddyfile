@@ -1,0 +1,13 @@
+# HTTPS reverse proxy for the DOMERA backend.
+# Set DOMAIN (e.g. api.domera.uz) in the environment; its DNS A record must point
+# to this server and ports 80/443 must be open. Caddy obtains and renews the
+# Let's Encrypt certificate automatically.
+{$DOMAIN:localhost} {
+	encode gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	reverse_proxy backend:3000
+}

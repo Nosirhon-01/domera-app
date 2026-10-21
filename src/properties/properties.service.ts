@@ -42,6 +42,11 @@ export class PropertiesService {
       minArea,
       maxArea,
       search,
+      minLat,
+      maxLat,
+      minLng,
+      maxLng,
+      hasLocation,
     } = filter;
 
     const where: Prisma.PropertyWhereInput = {};
@@ -71,6 +76,21 @@ export class PropertiesService {
       where.area = {};
       if (minArea !== undefined) where.area.gte = minArea;
       if (maxArea !== undefined) where.area.lte = maxArea;
+    }
+
+    // Map viewport filter (bounding box)
+    const hasLatBounds = minLat !== undefined || maxLat !== undefined;
+    const hasLngBounds = minLng !== undefined || maxLng !== undefined;
+
+    if (hasLocation || hasLatBounds || hasLngBounds) {
+      const latitude: Prisma.FloatNullableFilter = { not: null };
+      const longitude: Prisma.FloatNullableFilter = { not: null };
+      if (minLat !== undefined) latitude.gte = minLat;
+      if (maxLat !== undefined) latitude.lte = maxLat;
+      if (minLng !== undefined) longitude.gte = minLng;
+      if (maxLng !== undefined) longitude.lte = maxLng;
+      where.latitude = latitude;
+      where.longitude = longitude;
     }
 
     if (search) {

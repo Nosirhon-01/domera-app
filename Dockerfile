@@ -39,4 +39,8 @@ RUN mkdir -p uploads
 
 EXPOSE 3000
 
-CMD ["node", "dist/main.js"]
+# Sync the database schema with prisma/schema.prisma before starting, so new
+# tables/columns (conversations, messages, avatar, bio, ...) exist after a deploy.
+# `db push` refuses destructive changes, so it never drops data silently.
+# Set DB_SYNC_ON_START=false to skip.
+CMD ["sh", "-c", "if [ \"$DB_SYNC_ON_START\" != \"false\" ]; then npx prisma db push --skip-generate || exit 1; fi; exec node dist/main.js"]

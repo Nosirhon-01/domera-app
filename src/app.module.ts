@@ -13,6 +13,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { HealthModule } from './health/health.module';
 import { AgentsModule } from './agents/agents.module';
 import { ConversationsModule } from './conversations/conversations.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -30,13 +31,16 @@ import { ConversationsModule } from './conversations/conversations.module';
     PrismaModule,
     AuthModule,
     UsersModule,
-    PropertiesModule,
+    // Must be registered before PropertiesModule so that
+    // DELETE /properties/images/:imageId is not captured by DELETE /properties/:id
     PropertyImagesModule,
+    PropertiesModule,
     FavoritesModule,
     UploadsModule,
     HealthModule,
     AgentsModule,
     ConversationsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

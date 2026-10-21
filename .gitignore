@@ -35,3 +35,7 @@ lerna-debug.log*
 # Database
 prisma/migrations/
 !prisma/migrations/.gitkeep
+
+# Firebase credentials
+firebase-service-account*.json
+*-firebase-adminsdk-*.json

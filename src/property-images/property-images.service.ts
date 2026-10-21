@@ -35,13 +35,13 @@ export class PropertyImagesService {
     });
   }
 
-  async removeImage(imageId: string, userId: string, userRole: Role) {
+  async removeImage(imageId: string, userId: string, userRole: Role, propertyId?: string) {
     const image = await this.prisma.propertyImage.findUnique({
       where: { id: imageId },
       include: { property: true },
     });
 
-    if (!image) {
+    if (!image || (propertyId && image.propertyId !== propertyId)) {
       throw new NotFoundException(`Property image '${imageId}' not found`);
     }
 

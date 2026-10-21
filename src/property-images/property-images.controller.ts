@@ -32,6 +32,21 @@ export class PropertyImagesController {
     return this.propertyImagesService.findByPropertyId(propertyId);
   }
 
+  @Delete(':propertyId/images/:imageId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete an image of a property listing' })
+  @ApiResponse({ status: 200, description: 'Image deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Image not found on this property' })
+  removePropertyImage(
+    @Param('propertyId') propertyId: string,
+    @Param('imageId') imageId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: Role,
+  ) {
+    return this.propertyImagesService.removeImage(imageId, userId, userRole, propertyId);
+  }
+
   @Delete('images/:imageId')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth()

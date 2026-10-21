@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -12,7 +13,10 @@ import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   /**
    * Create a new conversation between the current user and a participant,
@@ -208,7 +212,7 @@ export class ConversationsService {
     dto: SendMessageDto,
   ) {
     // Ensure user is participant (throws 403 if not)
-    await this.findConversationForUser(conversationId, currentUserId);
+    const conversation = await this.findConversationForUser(conversationId, currentUserId);
 
     // Trim and validate content (whitespace-only check)
     const trimmed = dto.content.trim();
@@ -238,6 +242,21 @@ export class ConversationsService {
     await this.prisma.conversation.update({
       where: { id: conversationId },
       data: { updatedAt: new Date() },
+    });
+
+    // Push to the other participant(s) — fire and forget, never blocks sending
+    const recipientIds = conversation.participants
+      .map((p) => p.userId)
+      .filter((id) => id !== currentUserId);
+    void this.notificationsService.sendToUsers(recipientIds, {
+      title: message.sender.name,
+      body: trimmed.length > 200 ? `${trimmed.slice(0, 197)}...` : trimmed,
+      data: {
+        type: 'new_message',
+        conversationId,
+        messageId: message.id,
+        senderId: currentUserId,
+      },
     });
 
     return message;

@@ -110,7 +110,17 @@ npm run start:prod
 ```bash
 docker-compose up -d --build
 ```
-This will start PostgreSQL 16 on port `5432` and the NestJS backend on port `3000`.
+This will start PostgreSQL 16 (bound to `127.0.0.1:5432`), the NestJS backend on port `3000`, and Caddy (HTTPS) on ports `80`/`443`.
+
+On startup the backend container runs `prisma db push`, so new tables/columns are created automatically after each deploy (set `DB_SYNC_ON_START=false` to skip).
+
+### HTTPS
+1. Point a domain's DNS A record (e.g. `api.domera.uz`) to the server and open ports 80 and 443.
+2. Deploy with the domain set:
+   ```bash
+   DOMAIN=api.domera.uz docker-compose up -d --build
+   ```
+3. Caddy issues and renews the Let's Encrypt certificate automatically. The API is then at `https://api.domera.uz/api`.
 
 ---
 
@@ -135,8 +145,9 @@ The DOMERA Flutter application interacts with this backend exclusively over HTTP
 
 ### Base URL
 ```text
-http://<server-ip>:3000/api
+https://<your-domain>/api
 ```
+(`http://<server-ip>:3000/api` still works for older builds.)
 
 ### Key Flutter Endpoints
 - `POST /api/auth/register` — Create user account
@@ -145,7 +156,30 @@ http://<server-ip>:3000/api
 - `POST /api/auth/logout` — Revoke session
 - `GET /api/auth/me` — Fetch logged in user profile
 - `GET /api/properties` — Fetch paginated commercial properties with search filters
+- `GET /api/properties?minLat=&maxLat=&minLng=&maxLng=` — Properties inside the visible map area (`hasLocation=true` for all with coordinates)
+- `DELETE /api/properties/:propertyId/images/:imageId` — Delete a property image (image `id` comes from `images[]` in the property response)
 - `POST /api/favorites/:propertyId` — Save property to favorites
+- `PATCH /api/conversations/:id/read` — Mark all messages in a conversation as read
+- `PATCH /api/messages/:id/read` — Mark a single message as read
+- `POST /api/devices` — Register the FCM token (`{ token, platform: ANDROID | IOS | WEB }`) after login and on token refresh
+- `DELETE /api/devices` — Unregister the FCM token (`{ token }`) on logout
+
+---
+
+## 🔔 Push Notifications (FCM)
+
+1. Firebase Console → Project settings → Service accounts → **Generate new private key**.
+2. Give the JSON to the backend (never commit it):
+   - locally: `FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json` in `.env`
+   - Docker: `FIREBASE_SERVICE_ACCOUNT_BASE64=$(base64 -w0 firebase-service-account.json) docker-compose up -d --build`
+3. Without these the backend runs normally and only skips sending pushes.
+
+Pushes sent:
+| Event | `data.type` | Other `data` keys |
+|---|---|---|
+| New chat message | `new_message` | `conversationId`, `messageId`, `senderId` |
+
+Invalid / expired tokens are removed automatically.
 
 ---
 

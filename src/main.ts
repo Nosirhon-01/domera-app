@@ -18,6 +18,11 @@ async function bootstrap() {
   const apiPrefix = configService.get<string>('API_PREFIX') || 'api';
   const corsOrigins = configService.get<string[]>('cors.origins') || ['*'];
 
+  // Behind a reverse proxy (Caddy) — use X-Forwarded-* for client IP and protocol
+  if (configService.get<string>('TRUST_PROXY') === 'true') {
+    app.set('trust proxy', 1);
+  }
+
   // Global Prefix
   app.setGlobalPrefix(apiPrefix);
 

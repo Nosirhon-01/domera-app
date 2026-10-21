@@ -10,7 +10,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: domera_db
     ports:
-      - "5432:5432"
+      # Only reachable from the server itself, not from the internet
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,6 +27,7 @@ services:
     container_name: domera_backend
     restart: always
     ports:
+      # Plain HTTP, kept for older app builds. New builds should use https://$DOMAIN/api
       - "3000:3000"
     environment:
       NODE_ENV: production
@@ -41,9 +43,34 @@ services:
       ADMIN_PHONE: "+998900000000"
       ADMIN_PASSWORD: "AdminPassword123!"
       CORS_ORIGINS: "http://localhost:3000,http://localhost:8080"
+      TRUST_PROXY: "true"
+      # Push notifications: base64 of the Firebase service account JSON
+      FIREBASE_SERVICE_ACCOUNT_BASE64: ${FIREBASE_SERVICE_ACCOUNT_BASE64:-}
+    volumes:
+      # Keep uploaded images across container rebuilds
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
 
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: domera_caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
+  uploads_data:
+  caddy_data:
+  caddy_config:

@@ -48,6 +48,15 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   CORS_ORIGINS: string = 'http://localhost:3000';
+
+  // Firebase Cloud Messaging — one of these enables push notifications
+  @IsString()
+  @IsOptional()
+  FIREBASE_SERVICE_ACCOUNT_PATH?: string;
+
+  @IsString()
+  @IsOptional()
+  FIREBASE_SERVICE_ACCOUNT_BASE64?: string;
 }
 
 export function validate(config: Record<string, unknown>) {
