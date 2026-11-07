@@ -67,10 +67,38 @@ describe('Properties, images, favorites, uploads (e2e)', () => {
       await http().post('/api/properties').set(bearer(agent.token)).send(newProperty({ ownerId: user.id })).expect(400);
     });
 
-    it('plain USER can create a property; anonymous cannot', async () => {
-      const p = await createProperty(user);
-      expect(p.ownerId).toBe(user.id);
+    it('USER, AGENT, MANAGER and ADMIN can all create; anonymous cannot', async () => {
+      const manager = await asUser(Role.MANAGER);
+      for (const owner of [user, agent, manager, admin]) {
+        const p = await createProperty(owner);
+        expect(p.ownerId).toBe(owner.id);
+      }
       await http().post('/api/properties').send(newProperty()).expect(401);
+      await http().post('/api/properties').set(bearer('not-a-token')).send(newProperty()).expect(401);
+    });
+
+    it('posting is free for USER: many listings, no payment/subscription/premium involved', async () => {
+      const created = [];
+      for (let i = 0; i < 6; i++) {
+        const res = await http().post('/api/properties').set(bearer(user.token)).send(newProperty({ title: `Ad ${i}` }));
+        expect(res.status).toBe(201); // never 402 Payment Required / 403
+        created.push(res.body.data);
+      }
+      const body = JSON.stringify(created);
+      expect(body).not.toMatch(/payment|subscription|premium|invoice|paid/i);
+      // Listed publicly right away, no approval/payment status
+      const list = await http().get('/api/properties?limit=50').expect(200);
+      expect(list.body.data.items.filter((p: any) => p.ownerId === user.id)).toHaveLength(6);
+      expect(created.every((p) => p.status === 'AVAILABLE')).toBe(true);
+    });
+
+    it('USER edits/deletes own listing but not others', async () => {
+      const own = await createProperty(user);
+      const agents = await createProperty(agent);
+      await http().patch(`/api/properties/${own.id}`).set(bearer(user.token)).send({ price: 1 }).expect(200);
+      await http().patch(`/api/properties/${agents.id}`).set(bearer(user.token)).send({ price: 1 }).expect(403);
+      await http().delete(`/api/properties/${agents.id}`).set(bearer(user.token)).expect(403);
+      await http().delete(`/api/properties/${own.id}`).set(bearer(user.token)).expect(200);
     });
 
     it('only the owner (or admin/manager) can edit or delete', async () => {

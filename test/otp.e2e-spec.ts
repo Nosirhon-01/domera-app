@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { BadGatewayException, INestApplication, ServiceUnavailableException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SmsService } from '../src/auth/otp/sms.service';
@@ -24,6 +24,23 @@ describe('OTP login (e2e)', () => {
   });
   afterAll(() => app.close());
 
+  it('SMS failure returns 502/503 to the client and does not start the resend cooldown', async () => {
+    const sms = app.get(SmsService);
+    (sms.send as jest.Mock)
+      .mockRejectedValueOnce(new BadGatewayException('SMS could not be sent, try again later'))
+      .mockRejectedValueOnce(new ServiceUnavailableException('SMS service is temporarily unavailable, try again later'));
+
+    const rejected = await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(502);
+    expect(rejected.body).toMatchObject({ success: false, message: 'SMS could not be sent, try again later' });
+    const down = await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(503);
+    expect(down.body.success).toBe(false);
+    expect(await prisma.otpCode.count()).toBe(0);
+
+    // Immediate retry works (no 429) once SMS goes through
+    await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(200);
+    await http().post('/api/auth/otp/verify').send({ phone: '+998901234567', code: lastCode() }).expect(200);
+  });
+
   it('new number: send → verify creates a USER who can post a listing', async () => {
     await http().post('/api/auth/otp/send').send({ phone: '+998 90 111-22-33' }).expect(200);
     expect(sent[0].phone).toBe('+998901112233');
@@ -44,6 +61,64 @@ describe('OTP login (e2e)', () => {
       .expect(201);
   });
 
+  it('send returns the documented contract', async () => {
+    const res = await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: { phone: '+998901234567', expiresIn: 120, retryAfter: 60 },
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].message).toMatch(/\b\d{6}\b/);
+  });
+
+  it('verify returns tokens that work with the existing auth (me + refresh)', async () => {
+    await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(200);
+    const res = await http()
+      .post('/api/auth/otp/verify')
+      .send({ phone: '+998901234567', code: lastCode() })
+      .expect(200);
+    const data = res.body.data;
+    expect(Object.keys(data)).toEqual(expect.arrayContaining(['accessToken', 'refreshToken', 'user', 'isNewUser']));
+    expect(data.isNewUser).toBe(true);
+    expect(data.user.role).toBe(Role.USER);
+
+    const me = await http().get('/api/auth/me').set(bearer(data.accessToken)).expect(200);
+    expect(me.body.data.id).toBe(data.user.id);
+    const refreshed = await http().post('/api/auth/refresh').send({ refreshToken: data.refreshToken }).expect(200);
+    expect(refreshed.body.data.accessToken).toBeDefined();
+  });
+
+  it('user registered with password (other phone format) gets isNewUser=false and the same account', async () => {
+    const reg = await http()
+      .post('/api/auth/register')
+      .send({ name: 'Vali', phone: '+998 90 123 45 67', password: 'Secret123!' })
+      .expect(201);
+    expect(reg.body.data.user.phone).toBe('+998901234567');
+
+    await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(200);
+    const res = await http()
+      .post('/api/auth/otp/verify')
+      .send({ phone: '+998901234567', code: lastCode() })
+      .expect(200);
+    expect(res.body.data.isNewUser).toBe(false);
+    expect(res.body.data.user.id).toBe(reg.body.data.user.id);
+    expect(await prisma.user.count()).toBe(1);
+
+    // Password login still works with any phone format
+    await http().post('/api/auth/login').send({ phone: '901234567', password: 'Secret123!' }).expect(200);
+  });
+
+  it('wrong code returns 400 and does not log in; verify without send returns 400', async () => {
+    await http().post('/api/auth/otp/verify').send({ phone: '+998901234567', code: '123456' }).expect(400);
+
+    await http().post('/api/auth/otp/send').send({ phone: '+998901234567' }).expect(200);
+    const wrong = lastCode() === '000000' ? '111111' : '000000';
+    const res = await http().post('/api/auth/otp/verify').send({ phone: '+998901234567', code: wrong }).expect(400);
+    expect(res.body).toMatchObject({ success: false, message: 'Invalid code. Attempts left: 4' });
+    expect(res.body.data).toBeUndefined();
+    expect(await prisma.user.count()).toBe(0);
+  });
+
   it('existing user logs in, code works only once', async () => {
     await http().post('/api/auth/otp/send').send({ phone: '+998901112233' }).expect(200);
     const code = lastCode();
@@ -59,7 +134,10 @@ describe('OTP login (e2e)', () => {
 
   it('resend cooldown, wrong-attempt limit, expiry', async () => {
     await http().post('/api/auth/otp/send').send({ phone: '+998901112233' }).expect(200);
-    await http().post('/api/auth/otp/send').send({ phone: '+998901112233' }).expect(429);
+    const cooldown = await http().post('/api/auth/otp/send').send({ phone: '+998901112233' }).expect(429);
+    expect(cooldown.body.retryAfter).toBeGreaterThan(0);
+    expect(cooldown.body.retryAfter).toBeLessThanOrEqual(60);
+    expect(cooldown.headers['retry-after']).toBe(String(cooldown.body.retryAfter));
 
     const code = lastCode();
     const wrong = code === '000000' ? '111111' : '000000';

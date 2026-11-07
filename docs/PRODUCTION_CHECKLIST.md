@@ -128,11 +128,14 @@ SMS_PROVIDER=eskiz
 ESKIZ_EMAIL=<Eskiz kabinetidagi email>
 ESKIZ_PASSWORD=<Eskiz API paroli/kaliti>
 ESKIZ_FROM=4546
-OTP_MESSAGE_TEMPLATE=DOMERA: tasdiqlash kodingiz {code}
+OTP_MESSAGE_TEMPLATE="DOMERA: tasdiqlash kodingiz {code}"
 ```
 
+Tekshirish (SMS yubormaydi, faqat sozlama va Eskiz login): `npm run sms:check`. Haqiqiy SMS testi: [ESKIZ_SMS_TEST.md](ESKIZ_SMS_TEST.md).
+
 - Token kodda saqlanmaydi: server Eskiz'ga login qiladi va token muddati tugasa o'zi yangilaydi
-- `SMS_PROVIDER` bo'lmasa yoki `console` bo'lsa, productionda `/auth/otp/send` **503** qaytaradi (kod logga yozilmaydi)
+- `SMS_PROVIDER` bo'lmasa, `console` bo'lsa, Eskiz login/parol yo'q bo'lsa yoki shablonda `{code}` yo'q bo'lsa: productionda `/auth/otp/send` **503** qaytaradi, SMS yuborilmaydi, kod saqlanmaydi. Server ishga tushganda sabab logga yoziladi (maxfiy qiymatlarsiz)
+- Eskiz SMS ni rad etsa (shablon tasdiqlanmagan, balans yo'q, ...) **502**; Eskiz ishlamasa yoki javob bermasa **503**; +998 bo'lmagan raqam **400**. Bu holatlarda 60 s cooldown boshlanmaydi
 - Limitlar (kodda): kod 120 s amal qiladi, qayta yuborish 60 s dan keyin, raqamga soatiga 5 ta kod, kodga 5 ta urinish
 
 ## 6. Review account (App Store / Google Play)
@@ -177,6 +180,8 @@ Checklist:
 - [ ] 🔴 `npx prisma migrate deploy`
 - [ ] 🟢 `npx prisma migrate status` → `Database schema is up to date`
 - [ ] 🟢 `psql "${DATABASE_URL%%\?*}" -c '\d otp_codes'` → jadval mavjud
+- [ ] 🟢 Eski formatdagi telefonlar soni: `psql "${DATABASE_URL%%\?*}" -tAc "SELECT count(*) FROM users WHERE phone IS NOT NULL AND phone !~ '^\+[0-9]{9,15}$'"`.
+  0 bo'lmasa, bu foydalanuvchilar OTP bilan kirganda yangi akkaunt ochilib qoladi. Ularni qo'lda `+998XXXXXXXXX` ga keltirish kerak (🔴, avval zaxira; dublikat yo'qligini tekshiring)
 
 Yangi migratsiya faqat `otp_codes` jadvalini qo'shadi (`IF NOT EXISTS`). Mavjud jadvallar o'zgarmaydi, eski kod ham shu bazada ishlayveradi.
 
@@ -196,14 +201,16 @@ Yangi migratsiya faqat `otp_codes` jadvalini qo'shadi (`IF NOT EXISTS`). Mavjud 
 ```
 POST /auth/otp/send    { "phone": "+998901234567" }
   200 → data: { phone, expiresIn: 120, retryAfter: 60 }
-  429 → kutish kerak (yoki soatlik limit), 503 → SMS xizmati ishlamayapti
+  400 → raqam noto'g'ri yoki +998 emas, 429 → kutish kerak (yoki soatlik limit),
+  502/503 → SMS yuborilmadi, keyinroq qayta urinish mumkin (cooldown boshlanmaydi)
 POST /auth/otp/verify  { "phone": "+998901234567", "code": "123456", "name": "Ali" }
   200 → data: { user, accessToken, refreshToken, isNewUser }
   400 → kod noto'g'ri, eskirgan yoki ishlatilgan (message da qolgan urinishlar soni), 401 → akkaunt bloklangan
 ```
 
 - [ ] Telefon `+998 90 123-45-67`, `998901234567` yoki `901234567` ko'rinishida yuborilishi mumkin. Server o'zi `+998901234567` ga keltiradi
-- [ ] "Qayta yuborish" tugmasi uchun 60 soniyalik taymerni ilovaning o'zida yuriting. 429 javobida `retryAfter` maydoni yo'q, faqat matn bor
+- [ ] "Qayta yuborish" taymeri: 200 javobidagi `data.retryAfter` (60) dan boshlang. 429 bo'lsa, qolgan soniyalar `retryAfter` maydonida (body ning yuqori darajasida, `data` ichida emas) va `Retry-After` headerida keladi
+- [ ] Ro'yxatdan o'tish, profil va login ham telefonni shu formatga keltiradi, shuning uchun parol bilan va OTP bilan kirgan bir odam bitta akkauntga tushadi
 - [ ] `isNewUser: true` bo'lsa va ism so'ralmagan bo'lsa, ism kiritish ekranini ko'rsating → `PATCH /auth/me { "name": "..." }`
 - [ ] Tokenlarni saqlash va yangilash avvalgidek: `POST /auth/refresh`
 - [ ] Email/parol bilan kirish (`/auth/login`) ishlashda davom etadi. U review uchun kerak, shuning uchun ilovada **qolishi kerak**
@@ -241,7 +248,7 @@ Restart: `pm2 restart domera-api --update-env` (yoki DEPLOYMENT.md §7).
 
 **Kuzatish (birinchi 24 soat)**
 
-- [ ] `pm2 logs domera-api | grep -iE 'eskiz|sms'`: `Eskiz send failed` yo'q
+- [ ] `pm2 logs domera-api | grep -iE 'eskiz|sms'`: `Eskiz rejected SMS`, `Eskiz send:` va `Eskiz login failed` yo'q
 - [ ] Eskiz kabinetida SMS lar `delivered` holatida, balans yetarli
 - [ ] `journalctl -u caddy`: sertifikat bilan bog'liq xato yo'q
 

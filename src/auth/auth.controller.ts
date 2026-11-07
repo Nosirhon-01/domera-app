@@ -1,6 +1,14 @@
 import { Controller, Post, Get, Patch, Delete, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiEnvelope, ApiErrors } from '../common/swagger/api-responses';
+import {
+  AuthSessionResponseDto,
+  OtpSendResponseDto,
+  OtpVerifyResponseDto,
+  ProfileUpdateResponseDto,
+  UserResponseDto,
+} from './dto/auth-responses.dto';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -28,10 +36,9 @@ export class AuthController {
   @Post('register')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
-  @ApiResponse({ status: 429, description: 'Too many attempts' })
-  @ApiOperation({ summary: 'Register a new user' })
-  @ApiResponse({ status: 201, description: 'User successfully registered' })
-  @ApiResponse({ status: 400, description: 'Validation error or duplicate user' })
+  @ApiOperation({ summary: 'Register a new user (role is always USER)' })
+  @ApiEnvelope(201, 'User registered and signed in', AuthSessionResponseDto)
+  @ApiErrors([400, 'Validation error'], [409, 'Email or phone already registered'], [429, 'Too many attempts'])
   register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
@@ -39,11 +46,10 @@ export class AuthController {
   @Post('login')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
-  @ApiResponse({ status: 429, description: 'Too many attempts' })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login user using email or phone' })
-  @ApiResponse({ status: 200, description: 'Login successful' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiOperation({ summary: 'Login with email or phone + password' })
+  @ApiEnvelope(200, 'Login successful', AuthSessionResponseDto)
+  @ApiErrors([400, 'Validation error'], [401, 'Invalid credentials or deactivated account'], [429, 'Too many attempts'])
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }
@@ -53,9 +59,13 @@ export class AuthController {
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Send a 6-digit login code by SMS (60s resend cooldown, code valid 120s)' })
-  @ApiResponse({ status: 200, description: 'Code sent' })
-  @ApiResponse({ status: 429, description: 'Cooldown or hourly limit reached' })
-  @ApiResponse({ status: 503, description: 'SMS provider not configured or failing' })
+  @ApiEnvelope(200, 'Code sent', OtpSendResponseDto)
+  @ApiErrors(
+    [400, 'Invalid phone number, or not an Uzbekistan (+998) number when SMS goes through Eskiz'],
+    [429, 'Resend cooldown (body.retryAfter + Retry-After header), hourly limit or IP limit'],
+    [502, 'Eskiz rejected the SMS (template not approved, no balance, ...). Safe to retry later'],
+    [503, 'SMS not configured, or Eskiz unreachable / login failed. Safe to retry later'],
+  )
   sendOtp(@Body() dto: SendOtpDto) {
     return this.otpService.send(dto);
   }
@@ -64,9 +74,17 @@ export class AuthController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify SMS code and log in. Creates a USER account for a new phone (isNewUser=true)' })
-  @ApiResponse({ status: 200, description: 'Login successful: user, accessToken, refreshToken, isNewUser' })
-  @ApiResponse({ status: 400, description: 'Wrong, expired or used code' })
+  @ApiOperation({
+    summary: 'Verify SMS code and log in',
+    description: 'Existing phone: logs in (isNewUser=false). New phone: creates a USER account (isNewUser=true). ' +
+      'Tokens are the same as from /auth/login and work with /auth/refresh.',
+  })
+  @ApiEnvelope(200, 'Login successful', OtpVerifyResponseDto)
+  @ApiErrors(
+    [400, 'Wrong, expired, already used or not requested code; too many wrong attempts'],
+    [401, 'Account is deactivated'],
+    [429, 'Too many attempts from this IP'],
+  )
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.otpService.verify(dto);
   }
@@ -76,8 +94,8 @@ export class AuthController {
   @Throttle({ default: { limit: AUTH_RATE_LIMIT * 3, ttl: AUTH_RATE_TTL_MS } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh JWT access token using refresh token' })
-  @ApiResponse({ status: 200, description: 'Token refreshed successfully' })
-  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  @ApiEnvelope(200, 'New token pair (the old refresh token is revoked)', AuthSessionResponseDto)
+  @ApiErrors([401, 'Invalid, expired or revoked refresh token'])
   refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshTokens(refreshTokenDto);
   }
@@ -87,7 +105,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout user and revoke refresh token (body is optional)' })
-  @ApiResponse({ status: 200, description: 'Logout successful' })
+  @ApiEnvelope(200, 'Logged out', null)
+  @ApiErrors([401, 'Unauthorized'])
   logout(@CurrentUser('id') userId: string, @Body() logoutDto: LogoutDto) {
     return this.authService.logout(userId, logoutDto?.refreshToken);
   }
@@ -96,7 +115,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current logged in user details' })
-  @ApiResponse({ status: 200, description: 'Current user profile' })
+  @ApiEnvelope(200, 'Current user profile', UserResponseDto)
+  @ApiErrors([401, 'Unauthorized'])
   getMe(@CurrentUser('id') userId: string) {
     return this.authService.getMe(userId);
   }
@@ -105,8 +125,8 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update own profile (name, phone, email, password, avatar, bio)' })
-  @ApiResponse({ status: 200, description: 'Profile updated successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiEnvelope(200, 'Profile updated', ProfileUpdateResponseDto)
+  @ApiErrors([400, 'Validation error'], [401, 'Unauthorized'], [409, 'Email or phone taken by another user'])
   updateMe(@CurrentUser('id') userId: string, @Body() updateMeDto: UpdateMeDto) {
     return this.authService.updateMe(userId, updateMeDto);
   }
@@ -116,8 +136,8 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete own account permanently (required by App Store)' })
-  @ApiResponse({ status: 200, description: 'Account successfully deleted' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiEnvelope(200, 'Account deleted', null)
+  @ApiErrors([401, 'Unauthorized'])
   deleteMe(@CurrentUser('id') userId: string) {
     return this.authService.deleteMe(userId);
   }

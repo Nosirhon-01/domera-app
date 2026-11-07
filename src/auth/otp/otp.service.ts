@@ -56,6 +56,8 @@ export class OtpService {
     }
 
     const code = reviewCode ?? randomInt(0, 1_000_000).toString().padStart(6, '0');
+    // Build the text first: a broken template must fail before any code is stored
+    const message = reviewCode ? null : this.sms.otpMessage(code);
 
     // Invalidate older codes so only the newest one works
     await this.prisma.otpCode.updateMany({
@@ -70,10 +72,9 @@ export class OtpService {
       },
     });
 
-    if (!reviewCode) {
-      const template = this.config.get<string>('OTP_MESSAGE_TEMPLATE') || 'DOMERA: tasdiqlash kodingiz {code}';
+    if (message) {
       try {
-        await this.sms.send(phone, template.replace('{code}', code));
+        await this.sms.send(phone, message);
       } catch (e) {
         // Do not let an unsent code count against the user's cooldown
         await this.prisma.otpCode.delete({ where: { id: record.id } }).catch(() => undefined);

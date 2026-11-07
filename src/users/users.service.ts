@@ -4,6 +4,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { User } from '@prisma/client';
+import { normalizePhone } from '../common/utils/phone';
 
 @Injectable()
 export class UsersService {
@@ -13,7 +14,8 @@ export class UsersService {
     const { email: rawEmail, phone: rawPhone, password, ...rest } = createUserDto;
     // Normalize before the duplicate check so "User@Mail.com" and "user@mail.com" are the same account
     const email = rawEmail ? rawEmail.toLowerCase().trim() : undefined;
-    const phone = rawPhone ? rawPhone.trim() : undefined;
+    // Same format as OTP login (+998901234567), so one person never gets two accounts
+    const phone = rawPhone ? normalizePhone(rawPhone) ?? rawPhone.trim() : undefined;
 
     if (!email && !phone) {
       throw new ConflictException('Either email or phone must be provided');
@@ -59,12 +61,12 @@ export class UsersService {
 
   async findByEmailOrPhone(identifier: string): Promise<User | null> {
     const cleanIdentifier = identifier.trim();
+    const phones = [cleanIdentifier];
+    const normalized = normalizePhone(cleanIdentifier);
+    if (normalized && normalized !== cleanIdentifier) phones.push(normalized);
     return this.prisma.user.findFirst({
       where: {
-        OR: [
-          { email: cleanIdentifier.toLowerCase() },
-          { phone: cleanIdentifier },
-        ],
+        OR: [{ email: cleanIdentifier.toLowerCase() }, { phone: { in: phones } }],
       },
     });
   }
@@ -111,7 +113,7 @@ export class UsersService {
       updateUserDto.email = updateUserDto.email.toLowerCase().trim();
     }
     if (updateUserDto.phone) {
-      updateUserDto.phone = updateUserDto.phone.trim();
+      updateUserDto.phone = normalizePhone(updateUserDto.phone) ?? updateUserDto.phone.trim();
     }
 
     const updatedUser = await this.prisma.user.update({

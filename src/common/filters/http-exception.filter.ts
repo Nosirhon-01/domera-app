@@ -20,6 +20,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message = 'Internal server error';
     let error = 'INTERNAL_SERVER_ERROR';
     let details: any = undefined;
+    let retryAfter: number | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -30,6 +31,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       } else if (typeof res === 'object' && res !== null) {
         message = res.message || exception.message;
         error = res.error || HttpStatus[status] || 'ERROR';
+        // Seconds until the client may retry (OTP resend cooldown)
+        if (typeof res.retryAfter === 'number') retryAfter = res.retryAfter;
 
         if (Array.isArray(res.message)) {
           message = 'Validation failed';
@@ -44,11 +47,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = process.env.NODE_ENV === 'production' ? 'An unexpected error occurred' : exception.message;
     }
 
+    if (retryAfter !== undefined) response.setHeader('Retry-After', String(retryAfter));
     response.status(status).json({
       success: false,
       message,
       error,
       ...(details ? { details } : {}),
+      ...(retryAfter !== undefined ? { retryAfter } : {}),
     });
   }
 }

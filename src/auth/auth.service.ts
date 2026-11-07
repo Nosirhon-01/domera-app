@@ -9,6 +9,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import * as bcrypt from 'bcryptjs';
 import { User } from '@prisma/client';
+import { normalizePhone } from '../common/utils/phone';
 
 @Injectable()
 export class AuthService {
@@ -183,7 +184,7 @@ export class AuthService {
       }
     }
     if (rest.phone !== undefined) {
-      data.phone = rest.phone.trim();
+      data.phone = normalizePhone(rest.phone) ?? rest.phone.trim();
       const taken = await this.prisma.user.findFirst({ where: { phone: data.phone, NOT: { id: userId } } });
       if (taken) {
         throw new ConflictException('User with this phone number already exists');
