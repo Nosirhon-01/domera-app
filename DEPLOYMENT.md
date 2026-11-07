@@ -191,6 +191,58 @@ pg_restore --clean --if-exists --no-owner -d "$PGURL" /root/backups/<file>.dump
 
 ---
 
+## 10. HTTPS (Caddy in front of PM2)
+
+Needs a domain (e.g. `api.domera.uz`) whose DNS **A record points to `162.35.179.239`**.
+
+```bash
+# 🟢 DNS check — must print 162.35.179.239
+getent hosts api.domera.uz
+
+# 🟡 Install Caddy (Debian/Ubuntu)
+apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+apt update && apt install -y caddy
+
+# 🟡 Configure (edit the domain inside first)
+cp deploy/Caddyfile.pm2 /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+
+# 🟢 Verify — certificate is issued on the first request
+curl -s https://api.domera.uz/api/health
+```
+
+Then in `.env` add `TRUST_PROXY=true` and `pm2 restart domera-api --update-env`.
+
+**After the new app build (with the `https://api.domera.uz/api` base URL) is published**, close plain HTTP:
+add `HOST=127.0.0.1` to `.env`, restart PM2, and `ufw deny 3000/tcp` if ufw is on. Until then, old app
+builds keep working over `http://162.35.179.239:3000`.
+
+## 11. SMS login (OTP) and the review account
+
+`.env` (see `.env.example`):
+
+| Variable | Purpose |
+|---|---|
+| `SMS_PROVIDER=eskiz`, `ESKIZ_EMAIL`, `ESKIZ_PASSWORD`, `ESKIZ_FROM` | Eskiz.uz account. Without these, `/auth/otp/send` returns 503 in production |
+| `OTP_MESSAGE_TEMPLATE` | SMS text, `{code}` is replaced. Must match the template approved in the Eskiz cabinet |
+| `REVIEW_EMAIL`, `REVIEW_PASSWORD` | App Store / Play reviewer login via `/auth/login`. Created (role USER) on every start |
+| `REVIEW_PHONE`, `REVIEW_OTP_CODE` | Reviewer OTP login: this one number gets this fixed 6-digit code, no SMS sent |
+
+API:
+
+```
+POST /api/auth/otp/send    {"phone":"+998901234567"}                  → {expiresIn:120, retryAfter:60}
+POST /api/auth/otp/verify  {"phone":"+998901234567","code":"123456","name":"Ali"}
+                           → {user, accessToken, refreshToken, isNewUser}
+```
+
+New phone numbers get a USER account automatically. Limits: 60 s between codes, 5 codes per hour
+per number, 5 wrong attempts per code, code valid 120 s.
+
+Migration `20261107120000_add_otp_codes` (adds the `otp_codes` table only) runs with `npx prisma migrate deploy`.
+
 ## Optional settings (`.env`)
 
 | Variable | Default | Purpose |

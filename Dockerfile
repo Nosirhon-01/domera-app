@@ -3,6 +3,9 @@
 # ==========================================
 FROM node:20-alpine AS builder
 
+# Prisma's engines need OpenSSL, which the Alpine image does not include
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # Copy package files
@@ -23,6 +26,9 @@ RUN npm run build
 # 2. Production Stage
 # ==========================================
 FROM node:20-alpine AS runner
+
+# Prisma's engines need OpenSSL at runtime too (migrate deploy, query engine)
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 

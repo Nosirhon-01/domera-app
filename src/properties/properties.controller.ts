@@ -6,7 +6,6 @@ import { UpdatePropertyDto } from './dto/update-property.dto';
 import { PropertyFilterDto } from './dto/property-filter.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role, User } from '@prisma/client';
 
@@ -16,10 +15,10 @@ export class PropertiesController {
   constructor(private readonly propertiesService: PropertiesService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.AGENT, Role.MANAGER, Role.ADMIN)
+  // Any signed-in, active user can post a listing (USER, AGENT, MANAGER, ADMIN)
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create a new property listing (Agent, Manager, Admin)' })
+  @ApiOperation({ summary: 'Create a new property listing (any signed-in user)' })
   @ApiResponse({ status: 201, description: 'Property created successfully' })
   create(@CurrentUser('id') userId: string, @Body() createPropertyDto: CreatePropertyDto) {
     return this.propertiesService.create(userId, createPropertyDto);

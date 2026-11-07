@@ -182,6 +182,20 @@ model Message {
   @@map("messages")
 }
 
+// One-time SMS login codes. Only a hash of the code is stored.
+model OtpCode {
+  id         String    @id @default(uuid())
+  phone      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@map("otp_codes")
+}
+
 model DeviceToken {
   id        String         @id @default(uuid())
   userId    String

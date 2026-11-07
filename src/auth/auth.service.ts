@@ -8,6 +8,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import * as bcrypt from 'bcryptjs';
+import { User } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -69,6 +70,14 @@ export class AuthService {
       user: safeUser,
       ...tokens,
     };
+  }
+
+  /** Issues access + refresh tokens for an already verified user (used by OTP login). */
+  async issueSession(user: User) {
+    const { password: _, ...safeUser } = user;
+    const tokens = await this.generateTokens(user.id, user.role, user.email, user.phone);
+    await this.saveRefreshToken(user.id, tokens.refreshToken);
+    return { user: safeUser, ...tokens };
   }
 
   async refreshTokens(refreshTokenDto: RefreshTokenDto) {

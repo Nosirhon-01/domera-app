@@ -40,8 +40,11 @@ async function bootstrap() {
     SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
   }
 
-  await app.listen(port);
-  logger.log(`DOMERA Backend running on port ${port}`);
+  // HOST=127.0.0.1 when a reverse proxy (Caddy/nginx) terminates HTTPS on the same machine,
+  // so plain HTTP on :3000 is not reachable from the internet
+  const host = configService.get<string>('HOST') || '0.0.0.0';
+  await app.listen(port, host);
+  logger.log(`DOMERA Backend running on ${host}:${port}`);
   if (swaggerEnabled) {
     logger.log(`Swagger documentation available at: http://localhost:${port}/${apiPrefix}/docs`);
   }

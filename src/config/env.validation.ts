@@ -57,6 +57,52 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   FIREBASE_SERVICE_ACCOUNT_BASE64?: string;
+
+  // SMS / OTP login
+  @IsString()
+  @IsOptional()
+  SMS_PROVIDER?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_EMAIL?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_PASSWORD?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_FROM?: string;
+
+  @IsString()
+  @IsOptional()
+  OTP_MESSAGE_TEMPLATE?: string;
+
+  // App Store / Play review account
+  @IsString()
+  @IsOptional()
+  REVIEW_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  REVIEW_EMAIL?: string;
+
+  @IsString()
+  @IsOptional()
+  REVIEW_PHONE?: string;
+
+  @IsString()
+  @IsOptional()
+  REVIEW_PASSWORD?: string;
+
+  @IsString()
+  @IsOptional()
+  REVIEW_OTP_CODE?: string;
+
+  @IsString()
+  @IsOptional()
+  HOST?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

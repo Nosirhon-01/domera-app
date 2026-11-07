@@ -7,6 +7,8 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
+import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
+import { OtpService } from './otp/otp.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -17,7 +19,10 @@ const AUTH_RATE_TTL_MS = 60_000;
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly otpService: OtpService,
+  ) {}
 
   // Brute-force protection: limited attempts per client IP
   @Post('register')
@@ -41,6 +46,29 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('otp/send')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a 6-digit login code by SMS (60s resend cooldown, code valid 120s)' })
+  @ApiResponse({ status: 200, description: 'Code sent' })
+  @ApiResponse({ status: 429, description: 'Cooldown or hourly limit reached' })
+  @ApiResponse({ status: 503, description: 'SMS provider not configured or failing' })
+  sendOtp(@Body() dto: SendOtpDto) {
+    return this.otpService.send(dto);
+  }
+
+  @Post('otp/verify')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify SMS code and log in. Creates a USER account for a new phone (isNewUser=true)' })
+  @ApiResponse({ status: 200, description: 'Login successful: user, accessToken, refreshToken, isNewUser' })
+  @ApiResponse({ status: 400, description: 'Wrong, expired or used code' })
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.otpService.verify(dto);
   }
 
   @Post('refresh')

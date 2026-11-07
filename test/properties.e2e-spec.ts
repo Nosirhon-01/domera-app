@@ -67,8 +67,9 @@ describe('Properties, images, favorites, uploads (e2e)', () => {
       await http().post('/api/properties').set(bearer(agent.token)).send(newProperty({ ownerId: user.id })).expect(400);
     });
 
-    it('plain USER cannot create a property', async () => {
-      await http().post('/api/properties').set(bearer(user.token)).send(newProperty()).expect(403);
+    it('plain USER can create a property; anonymous cannot', async () => {
+      const p = await createProperty(user);
+      expect(p.ownerId).toBe(user.id);
       await http().post('/api/properties').send(newProperty()).expect(401);
     });
 

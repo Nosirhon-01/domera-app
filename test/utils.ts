@@ -22,7 +22,7 @@ export async function createTestApp() {
 /** Empty all tables. Guarded by test/setup-env.ts (DB name must end with _test). */
 export async function resetDb(prisma: PrismaService) {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "device_tokens", "messages", "conversation_participants", "conversations", ' +
+    'TRUNCATE TABLE "otp_codes", "device_tokens", "messages", "conversation_participants", "conversations", ' +
       '"favorites", "property_images", "properties", "refresh_tokens", "users" CASCADE',
   );
 }
