@@ -91,7 +91,7 @@ Expected — **only** these statements (the `avatar` line is absent if the colum
 ```
 CREATE TYPE "DevicePlatform" ...
 ALTER TABLE "users" ADD COLUMN "avatar" TEXT, ADD COLUMN "bio" TEXT   (only if missing)
-CREATE TABLE "conversations" / "conversation_participants" / "messages" / "device_tokens"
+CREATE TABLE "conversations" / "conversation_participants" / "messages" / "device_tokens" / "otp_codes"
 CREATE INDEX / CREATE UNIQUE INDEX on those new tables
 ALTER TABLE <new table> ADD CONSTRAINT ..._fkey FOREIGN KEY ...
 ```
