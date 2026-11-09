@@ -38,9 +38,13 @@ describe('Auth (e2e)', () => {
       expect(res.body.success).toBe(false);
     });
 
-    it('rejects duplicate phone with 409', async () => {
-      await http().post('/api/auth/register').send({ name: 'A', phone: '+998901112233', password: PASSWORD }).expect(201);
-      await http().post('/api/auth/register').send({ name: 'B', phone: '+998901112233', password: PASSWORD }).expect(409);
+    it('refuses phone numbers (they must go through /auth/register/request-code)', async () => {
+      await http().post('/api/auth/register').send({ name: 'A', phone: '+998901112233', password: PASSWORD }).expect(400);
+      await http()
+        .post('/api/auth/register')
+        .send({ name: 'A', email: 'a@test.uz', phone: '+998901112233', password: PASSWORD })
+        .expect(400);
+      expect(await prisma.user.count()).toBe(0);
     });
 
     it('does not allow choosing a role at registration (privilege escalation)', async () => {
@@ -51,7 +55,7 @@ describe('Auth (e2e)', () => {
       expect(await prisma.user.count()).toBe(0);
     });
 
-    it('requires email or phone', async () => {
+    it('requires an email', async () => {
       await http().post('/api/auth/register').send({ name: 'A', password: PASSWORD }).expect(400);
     });
   });

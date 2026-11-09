@@ -14,7 +14,7 @@ export class UsersService {
     const { email: rawEmail, phone: rawPhone, password, ...rest } = createUserDto;
     // Normalize before the duplicate check so "User@Mail.com" and "user@mail.com" are the same account
     const email = rawEmail ? rawEmail.toLowerCase().trim() : undefined;
-    // Same format as OTP login (+998901234567), so one person never gets two accounts
+    // Same format as phone registration (+998901234567), so one person never gets two accounts
     const phone = rawPhone ? normalizePhone(rawPhone) ?? rawPhone.trim() : undefined;
 
     if (!email && !phone) {

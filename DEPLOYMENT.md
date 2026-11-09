@@ -91,7 +91,7 @@ Expected — **only** these statements (the `avatar` line is absent if the colum
 ```
 CREATE TYPE "DevicePlatform" ...
 ALTER TABLE "users" ADD COLUMN "avatar" TEXT, ADD COLUMN "bio" TEXT   (only if missing)
-CREATE TABLE "conversations" / "conversation_participants" / "messages" / "device_tokens" / "otp_codes"
+CREATE TABLE "conversations" / "conversation_participants" / "messages" / "device_tokens" / "registration_challenges"
 CREATE INDEX / CREATE UNIQUE INDEX on those new tables
 ALTER TABLE <new table> ADD CONSTRAINT ..._fkey FOREIGN KEY ...
 ```
@@ -219,29 +219,33 @@ Then in `.env` add `TRUST_PROXY=true` and `pm2 restart domera-api --update-env`.
 add `HOST=127.0.0.1` to `.env`, restart PM2, and `ufw deny 3000/tcp` if ufw is on. Until then, old app
 builds keep working over `http://162.35.179.239:3000`.
 
-## 11. SMS login (OTP) and the review account
+## 11. Phone registration and the review account
 
-`.env` (see `.env.example`):
+No SMS provider is connected (Eskiz was removed). Phone numbers register in three steps:
+
+```
+POST /api/auth/register/request-code {"phone":"+998901234567"}
+     → {phone, expiresIn:180, retryAfter:60, devCode?}      409 if the phone is already registered
+POST /api/auth/register/verify-code  {"phone":"+998901234567","code":"123456"}
+     → {verificationToken, expiresIn:600}                   one-time token
+POST /api/auth/register/complete     {"verificationToken":"...","password":"Secret123","passwordConfirmation":"Secret123","name":"Ali"}
+     → {user, accessToken, refreshToken}                    same shape as /auth/login
+```
+
+Limits: code valid 180 s, 60 s between codes, 5 codes per hour per number, 5 wrong attempts per code.
+Only hashes of the code and of the verification token are stored (`registration_challenges`).
 
 | Variable | Purpose |
 |---|---|
-| `SMS_PROVIDER=eskiz`, `ESKIZ_EMAIL`, `ESKIZ_PASSWORD`, `ESKIZ_FROM` | Eskiz.uz account. Without these, `/auth/otp/send` returns 503 in production |
-| `OTP_MESSAGE_TEMPLATE` | SMS text, `{code}` is replaced. Must match the template approved in the Eskiz cabinet |
-| `REVIEW_EMAIL`, `REVIEW_PASSWORD` | App Store / Play reviewer login via `/auth/login`. Created (role USER) on every start |
-| `REVIEW_PHONE`, `REVIEW_OTP_CODE` | Reviewer OTP login: this one number gets this fixed 6-digit code, no SMS sent |
+| `OTP_DEV_MODE=true` | Returns the code as `devCode` so the app can show it. **Never in production**: the server refuses to start with `NODE_ENV=production` and `OTP_DEV_MODE=true` |
+| `REVIEW_EMAIL`, `REVIEW_PHONE`, `REVIEW_PASSWORD` | App Store / Play reviewer login via `/auth/login` (email or phone + password). Created (role USER) on every start |
 
-API:
+Without an SMS provider and with `OTP_DEV_MODE` off, nobody can receive the code, so **new phone
+registrations are not possible in production** until an SMS provider is connected again. Login with
+password, refresh and all other endpoints are unaffected.
 
-```
-POST /api/auth/otp/send    {"phone":"+998901234567"}                  → {expiresIn:120, retryAfter:60}
-POST /api/auth/otp/verify  {"phone":"+998901234567","code":"123456","name":"Ali"}
-                           → {user, accessToken, refreshToken, isNewUser}
-```
-
-New phone numbers get a USER account automatically. Limits: 60 s between codes, 5 codes per hour
-per number, 5 wrong attempts per code, code valid 120 s.
-
-Migration `20261107120000_add_otp_codes` (adds the `otp_codes` table only) runs with `npx prisma migrate deploy`.
+Migration `20261109120000_registration_challenges_drop_otp_codes` drops the old `otp_codes` table
+(short-lived login codes only) and creates `registration_challenges`. Runs with `npx prisma migrate deploy`.
 
 ## Optional settings (`.env`)
 

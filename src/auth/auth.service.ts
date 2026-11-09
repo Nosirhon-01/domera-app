@@ -21,14 +21,19 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    if (!registerDto.email && !registerDto.phone) {
-      throw new BadRequestException('Provide at least email or phone number to register');
+    if (registerDto.phone) {
+      // A phone number must be verified with a code first
+      throw new BadRequestException(
+        'Phone registration requires verification: use /auth/register/request-code, /verify-code, /complete',
+      );
+    }
+    if (!registerDto.email) {
+      throw new BadRequestException('Provide an email to register');
     }
 
     const user = await this.usersService.create({
       name: registerDto.name,
       email: registerDto.email,
-      phone: registerDto.phone,
       password: registerDto.password,
     });
 
@@ -73,7 +78,7 @@ export class AuthService {
     };
   }
 
-  /** Issues access + refresh tokens for an already verified user (used by OTP login). */
+  /** Issues access + refresh tokens for an already verified user (used by phone registration). */
   async issueSession(user: User) {
     const { password: _, ...safeUser } = user;
     const tokens = await this.generateTokens(user.id, user.role, user.email, user.phone);

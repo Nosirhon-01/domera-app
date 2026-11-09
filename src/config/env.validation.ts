@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import { IsEnum, IsIn, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
 
 enum Environment {
   Development = 'development',
@@ -58,26 +58,10 @@ class EnvironmentVariables {
   @IsOptional()
   FIREBASE_SERVICE_ACCOUNT_BASE64?: string;
 
-  // SMS / OTP login
-  @IsString()
+  // Phone registration: "true" returns the OTP code in API responses. Refused in production.
+  @IsIn(['true', 'false'])
   @IsOptional()
-  SMS_PROVIDER?: string;
-
-  @IsString()
-  @IsOptional()
-  ESKIZ_EMAIL?: string;
-
-  @IsString()
-  @IsOptional()
-  ESKIZ_PASSWORD?: string;
-
-  @IsString()
-  @IsOptional()
-  ESKIZ_FROM?: string;
-
-  @IsString()
-  @IsOptional()
-  OTP_MESSAGE_TEMPLATE?: string;
+  OTP_DEV_MODE?: string;
 
   // App Store / Play review account
   @IsString()
@@ -96,9 +80,6 @@ class EnvironmentVariables {
   @IsOptional()
   REVIEW_PASSWORD?: string;
 
-  @IsString()
-  @IsOptional()
-  REVIEW_OTP_CODE?: string;
 
   @IsString()
   @IsOptional()
@@ -113,6 +94,12 @@ export function validate(config: Record<string, unknown>) {
 
   if (errors.length > 0) {
     throw new Error(`Environment validation error: ${errors.toString()}`);
+  }
+
+  if (validatedConfig.NODE_ENV === Environment.Production && validatedConfig.OTP_DEV_MODE === 'true') {
+    throw new Error(
+      'OTP_DEV_MODE=true is not allowed with NODE_ENV=production: it would return registration codes in API responses',
+    );
   }
 
   // Warn (do not fail — that would take production down) about weak JWT secrets

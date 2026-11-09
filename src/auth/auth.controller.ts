@@ -4,9 +4,9 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ApiEnvelope, ApiErrors } from '../common/swagger/api-responses';
 import {
   AuthSessionResponseDto,
-  OtpSendResponseDto,
-  OtpVerifyResponseDto,
   ProfileUpdateResponseDto,
+  RegisterCodeResponseDto,
+  RegisterVerifyResponseDto,
   UserResponseDto,
 } from './dto/auth-responses.dto';
 import { AuthService } from './auth.service';
@@ -15,8 +15,8 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
-import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
-import { OtpService } from './otp/otp.service';
+import { RegisterCompleteDto, RegisterRequestCodeDto, RegisterVerifyCodeDto } from './dto/registration.dto';
+import { RegistrationService } from './registration/registration.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -29,16 +29,23 @@ const AUTH_RATE_TTL_MS = 60_000;
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly otpService: OtpService,
+    private readonly registrationService: RegistrationService,
   ) {}
 
   // Brute-force protection: limited attempts per client IP
   @Post('register')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
-  @ApiOperation({ summary: 'Register a new user (role is always USER)' })
+  @ApiOperation({
+    summary: 'Register with email + password (role is always USER)',
+    description: 'Phone numbers must be verified first: use /auth/register/request-code → verify-code → complete.',
+  })
   @ApiEnvelope(201, 'User registered and signed in', AuthSessionResponseDto)
-  @ApiErrors([400, 'Validation error'], [409, 'Email or phone already registered'], [429, 'Too many attempts'])
+  @ApiErrors(
+    [400, 'Validation error, or phone given (use the phone registration flow)'],
+    [409, 'Email already registered'],
+    [429, 'Too many attempts'],
+  )
   register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
@@ -54,39 +61,58 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
-  @Post('otp/send')
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Send a 6-digit login code by SMS (60s resend cooldown, code valid 120s)' })
-  @ApiEnvelope(200, 'Code sent', OtpSendResponseDto)
-  @ApiErrors(
-    [400, 'Invalid phone number, or not an Uzbekistan (+998) number when SMS goes through Eskiz'],
-    [429, 'Resend cooldown (body.retryAfter + Retry-After header), hourly limit or IP limit'],
-    [502, 'Eskiz rejected the SMS (template not approved, no balance, ...). Safe to retry later'],
-    [503, 'SMS not configured, or Eskiz unreachable / login failed. Safe to retry later'],
-  )
-  sendOtp(@Body() dto: SendOtpDto) {
-    return this.otpService.send(dto);
-  }
-
-  @Post('otp/verify')
+  @Post('register/request-code')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Verify SMS code and log in',
-    description: 'Existing phone: logs in (isNewUser=false). New phone: creates a USER account (isNewUser=true). ' +
-      'Tokens are the same as from /auth/login and work with /auth/refresh.',
+    summary: 'Step 1: create a 6-digit registration code for a new phone number',
+    description:
+      'No SMS is sent. With OTP_DEV_MODE=true (never in production) the code is returned as devCode. ' +
+      'Code valid 180 s, 60 s between codes, 5 codes per hour per number; a new code invalidates the previous one.',
   })
-  @ApiEnvelope(200, 'Login successful', OtpVerifyResponseDto)
+  @ApiEnvelope(200, 'Code created', RegisterCodeResponseDto)
+  @ApiErrors(
+    [400, 'Invalid phone number'],
+    [409, 'Phone number already registered'],
+    [429, 'Resend cooldown or hourly limit (body.retryAfter + Retry-After header), or IP limit'],
+  )
+  requestRegistrationCode(@Body() dto: RegisterRequestCodeDto) {
+    return this.registrationService.requestCode(dto);
+  }
+
+  @Post('register/verify-code')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Step 2: check the 6-digit code',
+    description: 'Returns a one-time verificationToken valid 10 minutes. 5 wrong attempts lock the code.',
+  })
+  @ApiEnvelope(200, 'Phone verified', RegisterVerifyResponseDto)
   @ApiErrors(
     [400, 'Wrong, expired, already used or not requested code; too many wrong attempts'],
-    [401, 'Account is deactivated'],
     [429, 'Too many attempts from this IP'],
   )
-  verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.otpService.verify(dto);
+  verifyRegistrationCode(@Body() dto: RegisterVerifyCodeDto) {
+    return this.registrationService.verifyCode(dto);
+  }
+
+  @Post('register/complete')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
+  @ApiOperation({
+    summary: 'Step 3: set the password and create the account',
+    description: 'Consumes the verificationToken. Tokens work with /auth/refresh like the ones from /auth/login.',
+  })
+  @ApiEnvelope(201, 'User registered and signed in', AuthSessionResponseDto)
+  @ApiErrors(
+    [400, 'Validation error, passwords do not match, or invalid/expired/used verification token'],
+    [409, 'Phone number already registered'],
+    [429, 'Too many attempts from this IP'],
+  )
+  completeRegistration(@Body() dto: RegisterCompleteDto) {
+    return this.registrationService.complete(dto);
   }
 
   @Post('refresh')

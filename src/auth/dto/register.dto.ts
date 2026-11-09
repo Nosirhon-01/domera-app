@@ -6,7 +6,7 @@ export class RegisterDto {
   @IsString()
   name: string;
 
-  @ApiPropertyOptional({ example: '+998901234567', description: 'Phone number' })
+  @ApiPropertyOptional({ example: '+998901234567', description: 'Not accepted here: phone numbers register via /auth/register/request-code' })
   @IsOptional()
   @IsString()
   phone?: string;

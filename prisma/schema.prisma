@@ -46,24 +46,24 @@ enum PropertyStatus {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  name          String
-  phone         String?        @unique
-  email         String?        @unique
-  password      String
-  role          Role           @default(USER)
-  avatar        String?
-  bio           String?        @db.Text
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  phone     String?  @unique
+  email     String?  @unique
+  password  String
+  role      Role     @default(USER)
+  avatar    String?
+  bio       String?  @db.Text
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  properties              Property[]               @relation("UserProperties")
-  favorites               Favorite[]
-  refreshTokens           RefreshToken[]
+  properties               Property[]                @relation("UserProperties")
+  favorites                Favorite[]
+  refreshTokens            RefreshToken[]
   conversationParticipants ConversationParticipant[]
-  sentMessages            Message[]                @relation("MessageSender")
-  deviceTokens            DeviceToken[]
+  sentMessages             Message[]                 @relation("MessageSender")
+  deviceTokens             DeviceToken[]
 
   @@map("users")
 }
@@ -76,7 +76,7 @@ model RefreshToken {
   isRevoked Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("refresh_tokens")
@@ -99,9 +99,9 @@ model Property {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  owner        User            @relation("UserProperties", fields: [ownerId], references: [id], onDelete: Cascade)
-  images       PropertyImage[]
-  favorites    Favorite[]
+  owner     User            @relation("UserProperties", fields: [ownerId], references: [id], onDelete: Cascade)
+  images    PropertyImage[]
+  favorites Favorite[]
 
   @@index([propertyType])
   @@index([purpose])
@@ -118,7 +118,7 @@ model PropertyImage {
   isPrimary  Boolean  @default(false)
   createdAt  DateTime @default(now())
 
-  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@index([propertyId])
   @@map("property_images")
@@ -130,8 +130,8 @@ model Favorite {
   propertyId String
   createdAt  DateTime @default(now())
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@unique([userId, propertyId])
   @@index([userId])
@@ -151,13 +151,13 @@ model Conversation {
 }
 
 model ConversationParticipant {
-  id             String       @id @default(uuid())
+  id             String   @id @default(uuid())
   conversationId String
   userId         String
-  joinedAt       DateTime     @default(now())
+  joinedAt       DateTime @default(now())
 
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId, userId])
   @@index([userId])
@@ -166,34 +166,39 @@ model ConversationParticipant {
 }
 
 model Message {
-  id             String       @id @default(uuid())
+  id             String    @id @default(uuid())
   conversationId String
   senderId       String
-  content        String       @db.Text
+  content        String    @db.Text
   readAt         DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
   @@index([senderId])
   @@map("messages")
 }
 
-// One-time SMS login codes. Only a hash of the code is stored.
-model OtpCode {
-  id         String    @id @default(uuid())
-  phone      String
-  codeHash   String
-  attempts   Int       @default(0)
-  expiresAt  DateTime
-  consumedAt DateTime?
-  createdAt  DateTime  @default(now())
+// Phone registration challenge: OTP step, then a one-time verification token for the password step.
+// Only hashes are stored (codeHash = HMAC of the 6-digit code, tokenHash = SHA-256 of the token).
+model RegistrationChallenge {
+  id             String    @id @default(uuid())
+  phone          String
+  codeHash       String
+  attempts       Int       @default(0)
+  expiresAt      DateTime
+  verifiedAt     DateTime?
+  tokenHash      String?   @unique
+  tokenExpiresAt DateTime?
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
 
   @@index([phone, createdAt])
-  @@map("otp_codes")
+  @@index([createdAt])
+  @@map("registration_challenges")
 }
 
 model DeviceToken {
@@ -204,7 +209,7 @@ model DeviceToken {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("device_tokens")

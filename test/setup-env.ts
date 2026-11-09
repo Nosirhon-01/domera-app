@@ -21,5 +21,5 @@ process.env.JWT_REFRESH_EXPIRES_IN = '7d';
 process.env.AUTH_RATE_LIMIT = process.env.AUTH_RATE_LIMIT || '1000';
 process.env.FIREBASE_SERVICE_ACCOUNT_PATH = '';
 process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = '';
-process.env.SMS_PROVIDER = 'console';
-for (const k of ['REVIEW_EMAIL', 'REVIEW_PHONE', 'REVIEW_PASSWORD', 'REVIEW_OTP_CODE']) process.env[k] = '';
+process.env.OTP_DEV_MODE = 'true';
+for (const k of ['REVIEW_EMAIL', 'REVIEW_PHONE', 'REVIEW_PASSWORD']) process.env[k] = '';

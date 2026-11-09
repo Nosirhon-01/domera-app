@@ -31,7 +31,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       } else if (typeof res === 'object' && res !== null) {
         message = res.message || exception.message;
         error = res.error || HttpStatus[status] || 'ERROR';
-        // Seconds until the client may retry (OTP resend cooldown)
+        // Seconds until the client may retry (registration code resend cooldown)
         if (typeof res.retryAfter === 'number') retryAfter = res.retryAfter;
 
         if (Array.isArray(res.message)) {

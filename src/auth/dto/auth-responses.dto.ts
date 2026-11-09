@@ -23,16 +23,24 @@ export class AuthSessionResponseDto {
   refreshToken: string;
 }
 
-export class OtpVerifyResponseDto extends AuthSessionResponseDto {
-  @ApiProperty({ example: true, description: 'true if this phone had no account and a USER account was just created' })
-  isNewUser: boolean;
+export class RegisterCodeResponseDto {
+  @ApiProperty({ example: 'Verification code created' }) message: string;
+  @ApiProperty({ example: '+998901234567', description: 'Normalized phone number' }) phone: string;
+  @ApiProperty({ example: 180, description: 'Seconds the code stays valid' }) expiresIn: number;
+  @ApiProperty({ example: 60, description: 'Seconds before another code can be requested' }) retryAfter: number;
+  @ApiPropertyOptional({
+    example: '482915',
+    description: 'The code itself. Present ONLY when OTP_DEV_MODE=true and NODE_ENV is not production',
+  })
+  devCode?: string;
 }
 
-export class OtpSendResponseDto {
-  @ApiProperty({ example: 'Code sent' }) message: string;
-  @ApiProperty({ example: '+998901234567', description: 'Normalized phone the code was sent to' }) phone: string;
-  @ApiProperty({ example: 120, description: 'Seconds the code stays valid' }) expiresIn: number;
-  @ApiProperty({ example: 60, description: 'Seconds before another code can be requested' }) retryAfter: number;
+export class RegisterVerifyResponseDto {
+  @ApiProperty({ example: 'Phone number verified' }) message: string;
+  @ApiProperty({ example: '+998901234567' }) phone: string;
+  @ApiProperty({ example: 'q2Jx...43 chars', description: 'One-time token for POST /auth/register/complete' })
+  verificationToken: string;
+  @ApiProperty({ example: 600, description: 'Seconds the verification token stays valid' }) expiresIn: number;
 }
 
 export class ProfileUpdateResponseDto {

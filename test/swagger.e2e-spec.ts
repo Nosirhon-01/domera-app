@@ -17,22 +17,35 @@ describe('Swagger document (e2e)', () => {
   });
   afterAll(() => app.close());
 
-  it('documents OTP send/verify requests and responses', () => {
-    const send = (doc.paths['/api/auth/otp/send'] as any).post;
-    expect(send.requestBody.content['application/json'].schema.$ref).toBe('#/components/schemas/SendOtpDto');
-    expect(dataRef('/api/auth/otp/send', 'post', '200')).toBe('#/components/schemas/OtpSendResponseDto');
-    expect(Object.keys(send.responses)).toEqual(expect.arrayContaining(['200', '400', '429', '503']));
+  it('documents the 3-step phone registration requests and responses', () => {
+    const body = (path: string) => (doc.paths[path] as any).post.requestBody.content['application/json'].schema.$ref;
+    const codes = (path: string) => Object.keys((doc.paths[path] as any).post.responses);
 
-    const verify = (doc.paths['/api/auth/otp/verify'] as any).post;
-    expect(verify.requestBody.content['application/json'].schema.$ref).toBe('#/components/schemas/VerifyOtpDto');
-    expect(dataRef('/api/auth/otp/verify', 'post', '200')).toBe('#/components/schemas/OtpVerifyResponseDto');
-    expect(Object.keys(verify.responses)).toEqual(expect.arrayContaining(['200', '400', '401']));
+    expect(body('/api/auth/register/request-code')).toBe('#/components/schemas/RegisterRequestCodeDto');
+    expect(dataRef('/api/auth/register/request-code', 'post', '200')).toBe('#/components/schemas/RegisterCodeResponseDto');
+    expect(codes('/api/auth/register/request-code')).toEqual(expect.arrayContaining(['200', '400', '409', '429']));
 
-    expect(props('VerifyOtpDto')).toEqual(expect.arrayContaining(['phone', 'code', 'name']));
-    expect(props('OtpVerifyResponseDto')).toEqual(
-      expect.arrayContaining(['accessToken', 'refreshToken', 'user', 'isNewUser']),
+    expect(body('/api/auth/register/verify-code')).toBe('#/components/schemas/RegisterVerifyCodeDto');
+    expect(dataRef('/api/auth/register/verify-code', 'post', '200')).toBe('#/components/schemas/RegisterVerifyResponseDto');
+    expect(codes('/api/auth/register/verify-code')).toEqual(expect.arrayContaining(['200', '400']));
+
+    expect(body('/api/auth/register/complete')).toBe('#/components/schemas/RegisterCompleteDto');
+    expect(dataRef('/api/auth/register/complete', 'post', '201')).toBe('#/components/schemas/AuthSessionResponseDto');
+    expect(codes('/api/auth/register/complete')).toEqual(expect.arrayContaining(['201', '400', '409']));
+
+    expect(props('RegisterCodeResponseDto')).toEqual(
+      expect.arrayContaining(['phone', 'expiresIn', 'retryAfter', 'devCode']),
+    );
+    expect(props('RegisterVerifyCodeDto')).toEqual(expect.arrayContaining(['phone', 'code']));
+    expect(props('RegisterCompleteDto')).toEqual(
+      expect.arrayContaining(['verificationToken', 'password', 'passwordConfirmation', 'name']),
     );
     expect(props('ErrorResponseDto')).toEqual(expect.arrayContaining(['success', 'message', 'error', 'retryAfter']));
+  });
+
+  it('no longer documents the Eskiz OTP endpoints', () => {
+    expect(doc.paths['/api/auth/otp/send']).toBeUndefined();
+    expect(doc.paths['/api/auth/otp/verify']).toBeUndefined();
   });
 
   it('documents login/register with the same session shape', () => {

@@ -15,7 +15,7 @@ export class ErrorResponseDto {
   @ApiPropertyOptional({ type: [String], description: 'Validation messages (HTTP 400 validation errors only)' })
   details?: string[];
 
-  @ApiPropertyOptional({ example: 42, description: 'Seconds until a retry is allowed (OTP resend cooldown, HTTP 429)' })
+  @ApiPropertyOptional({ example: 42, description: 'Seconds until a retry is allowed (registration code cooldown, HTTP 429)' })
   retryAfter?: number;
 }
 

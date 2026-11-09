@@ -8,7 +8,7 @@ import { normalizePhone } from '../common/utils/phone';
 /**
  * Keeps the App Store / Google Play review account in sync with .env on every start:
  *   REVIEW_EMAIL + REVIEW_PASSWORD  → login with POST /auth/login
- *   REVIEW_PHONE (+ REVIEW_OTP_CODE) → login with OTP, fixed code, no SMS is sent
+ *   REVIEW_PHONE + REVIEW_PASSWORD   → login with POST /auth/login (phone + password)
  * The account is a regular USER. Nothing happens if REVIEW_PASSWORD is unset.
  */
 @Injectable()

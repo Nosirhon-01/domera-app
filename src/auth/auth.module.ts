@@ -6,8 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { OtpService } from './otp/otp.service';
-import { SmsService } from './otp/sms.service';
+import { RegistrationService } from './registration/registration.service';
 import { ReviewAccountService } from './review-account.service';
 
 @Module({
@@ -26,7 +25,7 @@ import { ReviewAccountService } from './review-account.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, OtpService, SmsService, ReviewAccountService],
+  providers: [AuthService, JwtStrategy, RegistrationService, ReviewAccountService],
   exports: [AuthService],
 })
 export class AuthModule {}
