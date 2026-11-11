@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -10,8 +11,16 @@ import { normalizePhone } from '../common/utils/phone';
  *   REVIEW_EMAIL + REVIEW_PASSWORD  → login with POST /auth/login
  *   REVIEW_PHONE + REVIEW_PASSWORD   → login with POST /auth/login (phone + password)
  *   REVIEW_PHONE + REVIEW_OTP_CODE   → app sign-in (/auth/otp/send + verify) with a fixed code, no SMS is sent
- * The account is a regular USER. Nothing happens if REVIEW_PASSWORD is unset.
+ * Role: REVIEW_ROLE (AGENT by default, or USER). Never ADMIN/MANAGER: such an account is not touched.
+ * Runs when REVIEW_PASSWORD is set, or when REVIEW_PHONE + REVIEW_OTP_CODE are set.
  */
+export const REVIEW_ROLES: Role[] = [Role.USER, Role.AGENT];
+
+export function reviewRole(config: ConfigService): Role {
+  const value = config.get<string>('REVIEW_ROLE')?.trim().toUpperCase();
+  return value === Role.USER ? Role.USER : Role.AGENT;
+}
+
 @Injectable()
 export class ReviewAccountService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ReviewAccountService.name);
@@ -31,12 +40,15 @@ export class ReviewAccountService implements OnApplicationBootstrap {
   }
 
   async sync() {
-    const password = this.config.get<string>('REVIEW_PASSWORD');
+    const password = this.config.get<string>('REVIEW_PASSWORD') || null;
     const email = this.config.get<string>('REVIEW_EMAIL')?.toLowerCase().trim() || null;
     const phone = normalizePhone(this.config.get<string>('REVIEW_PHONE'));
-    if (!password || (!email && !phone)) return;
+    const otpCode = this.config.get<string>('REVIEW_OTP_CODE')?.trim();
+    if (!email && !phone) return;
+    if (!password && !(phone && otpCode)) return;
+    const role = reviewRole(this.config);
 
-    if (password.length < 8) {
+    if (password && password.length < 8) {
       this.logger.warn('REVIEW_PASSWORD is shorter than 8 characters');
     }
 
@@ -48,20 +60,18 @@ export class ReviewAccountService implements OnApplicationBootstrap {
       return;
     }
     const existing = matches[0];
-    if (existing && existing.role !== Role.USER) {
-      this.logger.error(`Review account ${email ?? phone} is a ${existing.role}, not a USER — not touched`);
+    if (existing && !REVIEW_ROLES.includes(existing.role)) {
+      this.logger.error(`Review account ${email ?? phone} is a ${existing.role} — not touched, use another number`);
       return;
     }
 
-    const hashed = await bcrypt.hash(password, 10);
     if (existing) {
-      if (!(await bcrypt.compare(password, existing.password)) || !existing.isActive) {
-        await this.prisma.user.update({
-          where: { id: existing.id },
-          data: { password: hashed, isActive: true },
-        });
-      }
-      this.logger.log(`Review account ready: ${email ?? phone}`);
+      const data: { password?: string; isActive?: boolean; role?: Role } = {};
+      if (password && !(await bcrypt.compare(password, existing.password))) data.password = await bcrypt.hash(password, 10);
+      if (!existing.isActive) data.isActive = true;
+      if (existing.role !== role) data.role = role;
+      if (Object.keys(data).length) await this.prisma.user.update({ where: { id: existing.id }, data });
+      this.logger.log(`Review account ready: ${email ?? phone} (${role})`);
       return;
     }
 
@@ -70,11 +80,12 @@ export class ReviewAccountService implements OnApplicationBootstrap {
         name: this.config.get<string>('REVIEW_NAME') || 'App Review',
         email,
         phone,
-        password: hashed,
-        role: Role.USER,
+        // Without REVIEW_PASSWORD the reviewer signs in with the fixed code only
+        password: await bcrypt.hash(password ?? randomBytes(24).toString('base64url'), 10),
+        role,
         isActive: true,
       },
     });
-    this.logger.log(`Review account created: ${email ?? phone}`);
+    this.logger.log(`Review account created: ${email ?? phone} (${role})`);
   }
 }

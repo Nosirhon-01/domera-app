@@ -256,8 +256,9 @@ Only hashes of the code and of the verification token are stored (`registration_
 | `OTP_MESSAGE_TEMPLATE` | Live SMS text, `{code}` is replaced. Must match the Eskiz-approved template exactly |
 | `OTP_EXPIRY_MINUTES`, `OTP_MAX_ATTEMPTS` | Default 3 and 5 |
 | `OTP_DEV_MODE=true` | Returns the code as `devCode`. **Never in production**: the server refuses to start with `NODE_ENV=production` and `OTP_DEV_MODE=true` |
-| `REVIEW_PHONE`, `REVIEW_OTP_CODE` | Reviewer signs in like a user: this number always accepts this fixed code, no SMS, no limits. Disabled if the number belongs to an admin/manager/agent |
-| `REVIEW_EMAIL`, `REVIEW_PASSWORD` | Reviewer account (role USER) created/updated on every start; also allows `/auth/login` with phone or email + password |
+| `REVIEW_PHONE`, `REVIEW_OTP_CODE` | Reviewer signs in like a user: this number always accepts this fixed code, no SMS, no limits. Disabled if the number belongs to an admin/manager |
+| `REVIEW_EMAIL`, `REVIEW_PASSWORD` | Reviewer account created/updated on every start; also allows `/auth/login` with phone or email + password |
+| `REVIEW_ROLE` | `AGENT` (default) or `USER`. Never admin/manager |
 
 In production only `SMS_MODE=live` can deliver codes (the review number always works). With `test` or `off`, request-code returns **503**
 ("SMS verification is temporarily unavailable") and nothing is sent or stored. Login with password, refresh

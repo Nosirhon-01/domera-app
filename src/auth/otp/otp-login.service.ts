@@ -8,6 +8,7 @@ import { normalizePhone } from '../../common/utils/phone';
 import { AuthService } from '../auth.service';
 import { OtpSendDto, OtpVerifyDto } from '../dto/otp.dto';
 import { DEFAULT_USER_NAME, OtpChallengeService } from './otp-challenge.service';
+import { REVIEW_ROLES, reviewRole } from '../review-account.service';
 
 /**
  * Phone + code sign-in used by the mobile app ("Kirish" screen):
@@ -16,7 +17,7 @@ import { DEFAULT_USER_NAME, OtpChallengeService } from './otp-challenge.service'
  *                           needsName=true → the app asks for first/last name and saves it with PATCH /auth/me.
  *
  * App Store / Google Play review: REVIEW_PHONE always accepts REVIEW_OTP_CODE (no SMS, no limits),
- * but only while that number belongs to a USER account (never an admin/manager/agent).
+ * The review account gets REVIEW_ROLE (AGENT by default). Never works for an admin/manager number.
  */
 @Injectable()
 export class OtpLoginService {
@@ -41,11 +42,14 @@ export class OtpLoginService {
     const now = new Date();
     await this.challenges.check(phone, 'login', dto.code, { verifiedAt: now, consumedAt: now });
 
+    const isReview = this.isReviewPhone(phone);
     let user = await this.findByPhone(phone);
     let isNewUser = false;
     if (!user) {
-      user = await this.createUser(phone, dto.name);
+      user = await this.createUser(phone, dto.name, isReview ? reviewRole(this.config) : Role.USER);
       isNewUser = true;
+    } else if (isReview && REVIEW_ROLES.includes(user.role) && user.role !== reviewRole(this.config)) {
+      user = await this.prisma.user.update({ where: { id: user.id }, data: { role: reviewRole(this.config) } });
     } else if (dto.name?.trim() && user.name === DEFAULT_USER_NAME) {
       // Name sent together with the code for an account that never got one
       user = await this.prisma.user.update({ where: { id: user.id }, data: { name: dto.name.trim() } });
@@ -67,7 +71,11 @@ export class OtpLoginService {
     return this.prisma.user.findFirst({ where: { phone: { in: this.challenges.phoneVariants(phone) } } });
   }
 
-  private async createUser(phone: string, name?: string): Promise<User> {
+  private isReviewPhone(phone: string): boolean {
+    return normalizePhone(this.config.get<string>('REVIEW_PHONE')) === phone;
+  }
+
+  private async createUser(phone: string, name: string | undefined, role: Role): Promise<User> {
     try {
       return await this.prisma.user.create({
         data: {
@@ -75,7 +83,7 @@ export class OtpLoginService {
           phone,
           // Signs in with codes; the random password is never shown (can be set later with PATCH /auth/me)
           password: await bcrypt.hash(randomBytes(24).toString('base64url'), 10),
-          role: Role.USER,
+          role,
           isActive: true,
         },
       });
@@ -97,7 +105,7 @@ export class OtpLoginService {
       return null;
     }
     const owner = await this.findByPhone(phone);
-    if (owner && owner.role !== Role.USER) {
+    if (owner && !REVIEW_ROLES.includes(owner.role)) {
       this.logger.error(`REVIEW_PHONE belongs to a ${owner.role} account — review code disabled, use another number`);
       return null;
     }

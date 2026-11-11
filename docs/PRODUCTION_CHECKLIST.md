@@ -117,7 +117,7 @@ openssl rand -base64 48
 - [ ] [my.eskiz.uz](https://my.eskiz.uz) da akkaunt, shartnoma va balans bor
 - [ ] Akkaunt **test rejimidan chiqqan** va SMS shabloni moderatsiyadan o'tgan. Matn `OTP_MESSAGE_TEMPLATE` bilan **belgima-belgi bir xil**, kod o'rnida `{code}`
 - [ ] Productionda `.env` da `OTP_DEV_MODE` **yo'q** yoki `false` (`true` bo'lsa server **ishga tushmaydi**)
-- [ ] Eski `SMS_PROVIDER` va `REVIEW_OTP_CODE` qatorlarini o'chiring (endi ishlatilmaydi)
+- [ ] Eski `SMS_PROVIDER` qatorini o'chiring (endi ishlatilmaydi)
 
 `.env`:
 
@@ -145,25 +145,26 @@ Serverdagi `.env` (gitga yozilmaydi):
 ```
 REVIEW_NAME=App Review
 REVIEW_PHONE=+998900000000
-REVIEW_OTP_CODE=123456
+REVIEW_OTP_CODE=000000
 REVIEW_PASSWORD=123456
+REVIEW_ROLE=AGENT
 ```
 
 - [ ] **Avval tekshiring**: bu raqam admin/manager/agent'ga tegishli emas (eski seed admin'ga `+998900000000` berardi):
   `psql "${DATABASE_URL%%\?*}" -tAc "SELECT role FROM users WHERE phone IN ('+998900000000','998900000000')"`
-  Natija bo'sh yoki `USER` bo'lishi kerak. `ADMIN` bo'lsa, admin raqamini o'zgartiring (🔴, avval zaxira):
+  Natija bo'sh, `USER` yoki `AGENT` bo'lishi kerak. `ADMIN` bo'lsa, admin raqamini o'zgartiring (🔴, avval zaxira):
   `UPDATE users SET phone = NULL WHERE phone = '+998900000000' AND role = 'ADMIN';`
   Aks holda server review kodini **o'chiradi** va logga xato yozadi
-- [ ] Server har ishga tushganda akkauntni yaratadi yoki parolini yangilaydi. Roli `USER`, ismi `REVIEW_NAME`
+- [ ] Server har ishga tushganda akkauntni yaratadi yoki parolini yangilaydi. Roli `REVIEW_ROLE` (standart `AGENT`), ismi `REVIEW_NAME`. `REVIEW_PASSWORD` bo'lmasa ham `REVIEW_PHONE` + `REVIEW_OTP_CODE` yetarli
 - [ ] Restartdan keyin logda `Review account created` yoki `Review account ready` chiqadi
 - [ ] `REVIEW_PHONE` uchun: SMS yo'q, cooldown/limit yo'q, kod har doim `REVIEW_OTP_CODE`. Eskiz test rejimida bo'lsa ham ishlaydi
 - [ ] **App Store Connect → App Review Information → Sign-in required** va **Play Console → App access** ga yozing:
   ```
   Phone: +998 90 000 00 00
-  Code / password: 123456
-  Enter the phone number, tap "Davom etish", enter 123456 and tap "Tasdiqlash". No SMS is sent for this number.
+  Code: 000000
+  Enter the phone number, tap "Davom etish", enter 000000 and tap "Tasdiqlash". No SMS is sent for this number.
   ```
-- ⚠️ `123456` oddiy kod: raqamni bilgan har kim bu USER akkauntga kira oladi (e'lon qo'shishi mumkin). Unda
+- ⚠️ `000000` oddiy kod: raqamni bilgan har kim bu AGENT akkauntga kira oladi (e'lon qo'shishi mumkin). Unda
   maxfiy ma'lumot saqlamang. Review tugagach `REVIEW_OTP_CODE` ni o'chirib `pm2 restart domera-api --update-env` qilsangiz,
   raqam oddiy SMS rejimiga o'tadi
 
@@ -264,7 +265,7 @@ Restart: `pm2 restart domera-api --update-env` (yoki DEPLOYMENT.md §7).
 
 **Funksiyalar** (parolni `read -s` bilan kiriting, terminal tarixiga tushmasin)
 
-- [ ] Review: `+998900000000` → `/auth/otp/send` → 200, SMS yo'q; `/auth/otp/verify` kod `123456` → token, `role: USER`
+- [ ] Review: `+998900000000` → `/auth/otp/send` → 200, SMS yo'q; `/auth/otp/verify` kod `000000` → token, `role: AGENT`
 - [ ] O'z raqamingiz bilan `POST /api/auth/register/request-code` → 200, `delivery: "sms"`, javobda `devCode` **yo'q**, SMS 10–30 soniyada keladi va kod `verify-code` da ishlaydi
 - [ ] 60 soniya ichida qayta so'rash → 429
 - [ ] Oddiy USER token bilan `POST /api/properties` → 201, keyin shu e'lonni o'chirish

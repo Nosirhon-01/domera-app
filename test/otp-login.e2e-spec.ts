@@ -7,7 +7,7 @@ import { ReviewAccountService } from '../src/auth/review-account.service';
 import { bearer, createTestApp, Http, resetDb } from './utils';
 
 const PHONE = '+998901112233';
-const REVIEW = { REVIEW_PHONE: '+998 (90) 000-00-00', REVIEW_OTP_CODE: '123456', REVIEW_PASSWORD: '123456' };
+const REVIEW = { REVIEW_PHONE: '+998 (90) 000-00-00', REVIEW_OTP_CODE: '000000', REVIEW_PASSWORD: '123456' };
 const LISTING = { title: 'Uyim', description: 'Sotiladi', propertyType: 'SHOP', purpose: 'SALE', price: 1, area: 1, address: 'Toshkent' };
 
 describe('Phone sign-in /auth/otp (e2e)', () => {
@@ -149,12 +149,12 @@ describe('Phone sign-in /auth/otp (e2e)', () => {
     expect(sent).toHaveLength(0);
   });
 
-  describe('App Store / Play review account (+998 90 000 00 00 / 123456)', () => {
+  describe('App Store / Play review account (+998 90 000 00 00 / code 000000, AGENT)', () => {
     it('works in production even when SMS is off: fixed code, no SMS, no devCode, no limits', async () => {
       production(REVIEW);
       await app.get(ReviewAccountService).sync(); // runs on every server start
       const account = await prisma.user.findUniqueOrThrow({ where: { phone: '+998900000000' } });
-      expect(account.role).toBe(Role.USER);
+      expect(account.role).toBe(Role.AGENT);
 
       for (let i = 0; i < 7; i++) {
         const res = await send('+998900000000').expect(200);
@@ -164,9 +164,11 @@ describe('Phone sign-in /auth/otp (e2e)', () => {
       expect(sent).toHaveLength(0);
 
       await verify('654321', '+998900000000').expect(400);
-      const data = (await verify('123456', '900000000').expect(200)).body.data;
+      const data = (await verify('000000', '900000000').expect(200)).body.data;
       expect(data).toMatchObject({ isNewUser: false, needsName: false });
-      expect(data.user).toMatchObject({ id: account.id, role: Role.USER });
+      expect(data.user).toMatchObject({ id: account.id, role: Role.AGENT });
+      const me = await http().get('/api/auth/me').set(bearer(data.accessToken)).expect(200);
+      expect(me.body.data.role).toBe(Role.AGENT);
 
       // Reviewer can post and delete a listing
       const listing = await http().post('/api/properties').set(bearer(data.accessToken)).send(LISTING).expect(201);
@@ -176,18 +178,39 @@ describe('Phone sign-in /auth/otp (e2e)', () => {
       await http().post('/api/auth/login').send({ phone: '+998900000000', password: '123456' }).expect(200);
     });
 
-    it('without REVIEW_PASSWORD the first sign-in creates the account and asks the name', async () => {
-      production({ REVIEW_PHONE: REVIEW.REVIEW_PHONE, REVIEW_OTP_CODE: '123456' });
+    it('without REVIEW_PASSWORD the first sign-in creates an AGENT account and asks the name', async () => {
+      production({ REVIEW_PHONE: REVIEW.REVIEW_PHONE, REVIEW_OTP_CODE: '000000' });
       await send('+998900000000').expect(200);
-      const data = (await verify('123456', '+998900000000').expect(200)).body.data;
+      const data = (await verify('000000', '+998900000000').expect(200)).body.data;
       expect(data).toMatchObject({ isNewUser: true, needsName: true });
+      expect(data.user.role).toBe(Role.AGENT);
+    });
+
+    it('startup sync creates the AGENT account from REVIEW_PHONE + REVIEW_OTP_CODE alone', async () => {
+      production({ REVIEW_PHONE: REVIEW.REVIEW_PHONE, REVIEW_OTP_CODE: '000000' });
+      await app.get(ReviewAccountService).sync();
+      const account = await prisma.user.findUniqueOrThrow({ where: { phone: '+998900000000' } });
+      expect(account).toMatchObject({ role: Role.AGENT, name: 'App Review', isActive: true });
+    });
+
+    it('REVIEW_ROLE=USER keeps a plain user; an existing USER review account is switched to the configured role', async () => {
+      await prisma.user.create({ data: { name: 'Old review', phone: '+998900000000', password: 'x', role: Role.USER } });
+      production(REVIEW);
+      await app.get(ReviewAccountService).sync();
+      expect((await prisma.user.findUniqueOrThrow({ where: { phone: '+998900000000' } })).role).toBe(Role.AGENT);
+
+      production({ ...REVIEW, REVIEW_ROLE: 'USER' });
+      await app.get(ReviewAccountService).sync();
+      expect((await prisma.user.findUniqueOrThrow({ where: { phone: '+998900000000' } })).role).toBe(Role.USER);
     });
 
     it('fixed code is disabled if the number belongs to an admin', async () => {
       await prisma.user.create({ data: { name: 'Admin', phone: '+998900000000', password: 'x', role: Role.ADMIN } });
       production(REVIEW);
       await send('+998900000000').expect(503); // normal path, and production has no SMS here
-      await verify('123456', '+998900000000').expect(400);
+      await verify('000000', '+998900000000').expect(400);
+      await app.get(ReviewAccountService).sync();
+      expect((await prisma.user.findUniqueOrThrow({ where: { phone: '+998900000000' } })).role).toBe(Role.ADMIN);
     });
 
     it('other numbers do not get the review code', async () => {
@@ -195,7 +218,7 @@ describe('Phone sign-in /auth/otp (e2e)', () => {
       await send().expect(200);
       expect(sent).toHaveLength(1);
       const code = sent[0].message.match(/\d{6}/)![0];
-      if (code !== '123456') await verify('123456').expect(400);
+      if (code !== '000000') await verify('000000').expect(400);
     });
   });
 

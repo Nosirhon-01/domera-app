@@ -125,13 +125,18 @@ class EnvironmentVariables {
   @IsOptional()
   REVIEW_OTP_CODE?: string;
 
+  // Role of the review account: AGENT (default) or USER
+  @IsIn(['USER', 'AGENT'])
+  @IsOptional()
+  REVIEW_ROLE?: string;
+
   @IsString()
   @IsOptional()
   HOST?: string;
 }
 
 /** "KEY=" in .env means "not set" for these (an empty string would fail their number/enum checks). */
-const EMPTY_MEANS_UNSET = ['REVIEW_OTP_CODE', 'OTP_DEV_MODE', 'OTP_EXPIRY_MINUTES', 'OTP_MAX_ATTEMPTS', 'SMS_MODE', 'ESKIZ_TEST_MESSAGE'];
+const EMPTY_MEANS_UNSET = ['REVIEW_OTP_CODE', 'REVIEW_ROLE', 'OTP_DEV_MODE', 'OTP_EXPIRY_MINUTES', 'OTP_MAX_ATTEMPTS', 'SMS_MODE', 'ESKIZ_TEST_MESSAGE'];
 
 export function validate(rawConfig: Record<string, unknown>) {
   const config = { ...rawConfig };
