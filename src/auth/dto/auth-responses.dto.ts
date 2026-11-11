@@ -24,15 +24,33 @@ export class AuthSessionResponseDto {
 }
 
 export class RegisterCodeResponseDto {
-  @ApiProperty({ example: 'Verification code created' }) message: string;
+  @ApiProperty({ example: 'Verification code sent by SMS' }) message: string;
   @ApiProperty({ example: '+998901234567', description: 'Normalized phone number' }) phone: string;
   @ApiProperty({ example: 180, description: 'Seconds the code stays valid' }) expiresIn: number;
   @ApiProperty({ example: 60, description: 'Seconds before another code can be requested' }) retryAfter: number;
+  @ApiProperty({
+    enum: ['sms', 'test', 'none'],
+    example: 'sms',
+    description:
+      'sms = code sent by SMS (SMS_MODE=live); test = only the Eskiz test text was sent, it does NOT contain the code ' +
+      '(dev only, use devCode); none = no SMS (dev only, use devCode)',
+  })
+  delivery: 'sms' | 'test' | 'none';
   @ApiPropertyOptional({
     example: '482915',
     description: 'The code itself. Present ONLY when OTP_DEV_MODE=true and NODE_ENV is not production',
   })
   devCode?: string;
+}
+
+export class OtpVerifyResponseDto extends AuthSessionResponseDto {
+  @ApiProperty({ example: true, description: 'true if this phone had no account and a USER account was just created' })
+  isNewUser: boolean;
+  @ApiProperty({
+    example: true,
+    description: 'true if the account has no real name yet: show the name screen, then PATCH /auth/me { name }',
+  })
+  needsName: boolean;
 }
 
 export class RegisterVerifyResponseDto {

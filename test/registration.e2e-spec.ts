@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RegistrationService } from '../src/auth/registration/registration.service';
+import { SmsService } from '../src/auth/sms/sms.service';
 import { bearer, createTestApp, Http, resetDb } from './utils';
 
 const PHONE = '+998901112233';
@@ -38,7 +39,7 @@ describe('Phone registration (e2e)', () => {
     const step1 = await requestCode('+998 90 111-22-33').expect(200);
     expect(step1.body).toMatchObject({
       success: true,
-      data: { phone: PHONE, expiresIn: 180, retryAfter: 60, devCode: expect.stringMatching(/^\d{6}$/) },
+      data: { phone: PHONE, expiresIn: 180, retryAfter: 60, delivery: 'none', devCode: expect.stringMatching(/^\d{6}$/) },
     });
 
     const step2 = await verify(step1.body.data.devCode, '901112233').expect(200);
@@ -216,33 +217,126 @@ describe('Phone registration (e2e)', () => {
     expect(await prisma.user.count()).toBe(0);
   });
 
-  it('old Eskiz OTP endpoints are gone', async () => {
-    await http().post('/api/auth/otp/send').send({ phone: PHONE }).expect(404);
-    await http().post('/api/auth/otp/verify').send({ phone: PHONE, code: '123456' }).expect(404);
-  });
+  describe('SMS delivery modes (Eskiz mocked, no real SMS)', () => {
+    let configSpy: jest.SpyInstance;
+    let sent: { phone: string; message: string }[];
+    let env: Record<string, string>;
 
-  it('3/12: the code is returned only in dev mode, never in production', async () => {
-    const service = app.get(RegistrationService);
-    const config = app.get(ConfigService);
-    const real = config.get.bind(config);
-    const spy = jest.spyOn(config, 'get');
-    try {
-      spy.mockImplementation(((key: string) => (key === 'OTP_DEV_MODE' ? 'false' : real(key))) as any);
-      expect(service.devMode).toBe(false);
-      const off = await requestCode().expect(200);
-      expect(off.body.data.devCode).toBeUndefined();
-      expect(JSON.stringify(off.body)).not.toMatch(/\b\d{6}\b/);
+    beforeEach(() => {
+      const config = app.get(ConfigService);
+      const real = config.get.bind(config);
+      env = {};
+      configSpy = jest.spyOn(config, 'get').mockImplementation(((key: string) =>
+        key in env ? env[key] : real(key)) as any);
+      sent = [];
+      // Low-level Eskiz call is mocked: sendOtp/mode logic runs for real
+      jest.spyOn(app.get(SmsService), 'send').mockImplementation(async (phone, message) => {
+        sent.push({ phone, message });
+      });
+    });
+    afterEach(() => jest.restoreAllMocks());
 
+    const production = (smsMode: string) => {
+      env = { NODE_ENV: 'production', OTP_DEV_MODE: 'true', SMS_MODE: smsMode };
+    };
+    const codeFromSms = () => sent[sent.length - 1].message.match(/\d{6}/)![0];
+
+    it('12: production + live: code goes only by SMS, never in the response, and verifies', async () => {
+      production('live');
+      expect(app.get(RegistrationService).devMode).toBe(false);
+      const res = await requestCode('+998 90 111 22 33').expect(200);
+      expect(res.body.data).toEqual({
+        message: 'Verification code sent by SMS',
+        phone: PHONE,
+        expiresIn: 180,
+        retryAfter: 60,
+        delivery: 'sms',
+      });
+      expect(JSON.stringify(res.body)).not.toMatch(/\b\d{6}\b/);
+      expect(sent).toEqual([{ phone: PHONE, message: expect.stringMatching(/^DOMERA: tasdiqlash kodingiz \d{6}$/) }]);
+
+      const token = (await verify(codeFromSms()).expect(200)).body.data.verificationToken;
+      await complete(token).expect(201);
+    });
+
+    it('production + test mode or off: 503, no SMS sent, nothing stored, phone not verified', async () => {
+      for (const mode of ['test', 'off']) {
+        production(mode);
+        const res = await requestCode().expect(503);
+        expect(res.body).toMatchObject({ success: false, message: expect.stringMatching(/temporarily unavailable/) });
+        expect(res.body.data).toBeUndefined();
+      }
+      expect(sent).toHaveLength(0);
+      expect(await prisma.registrationChallenge.count()).toBe(0);
+    });
+
+    it('dev + test mode: sends only the Eskiz test text (no code); the code is shown as devCode', async () => {
+      env = { SMS_MODE: 'test' };
+      const res = await requestCode().expect(200);
+      expect(res.body.data).toMatchObject({ delivery: 'test', devCode: expect.stringMatching(/^\d{6}$/) });
+      expect(sent).toEqual([{ phone: PHONE, message: 'This is test from Eskiz' }]);
+      expect(sent[0].message).not.toContain(res.body.data.devCode);
+      // Sending the test SMS did not verify anything: verification still needs the code
+      expect(await prisma.registrationChallenge.count({ where: { verifiedAt: { not: null } } })).toBe(0);
+      await verify(res.body.data.devCode).expect(200);
+    });
+
+    it('dev + off: no SMS, delivery none, devCode returned', async () => {
+      const res = await requestCode().expect(200);
+      expect(res.body.data).toMatchObject({ delivery: 'none', devCode: expect.stringMatching(/^\d{6}$/) });
+      expect(sent).toHaveLength(0);
+    });
+
+    it('SMS failure → 502/503, code discarded, no cooldown, previous code keeps working', async () => {
+      production('live');
+      await requestCode().expect(200);
+      const firstCode = codeFromSms();
       await skipCooldown();
-      spy.mockImplementation(((key: string) =>
-        key === 'NODE_ENV' ? 'production' : key === 'OTP_DEV_MODE' ? 'true' : real(key)) as any);
-      expect(service.devMode).toBe(false);
-      const prod = await requestCode().expect(200);
-      expect(prod.body.data.devCode).toBeUndefined();
-      expect(Object.keys(prod.body.data).sort()).toEqual(['expiresIn', 'message', 'phone', 'retryAfter']);
-    } finally {
-      spy.mockRestore();
-    }
-    expect(service.devMode).toBe(true);
+
+      const send = app.get(SmsService).send as jest.Mock;
+      const { BadGatewayException, ServiceUnavailableException } = await import('@nestjs/common');
+      send.mockRejectedValueOnce(new BadGatewayException('SMS could not be sent, try again later'));
+      const rejected = await requestCode().expect(502);
+      expect(rejected.body).toMatchObject({ success: false, message: 'SMS could not be sent, try again later' });
+
+      send.mockRejectedValueOnce(new ServiceUnavailableException('SMS service is temporarily unavailable, try again later'));
+      await requestCode().expect(503);
+
+      expect(await prisma.registrationChallenge.count()).toBe(1); // failed ones were deleted
+      await verify(firstCode).expect(200); // old code not invalidated by the failed attempts
+    });
+
+    it('a failed SMS does not start the resend cooldown', async () => {
+      production('live');
+      (app.get(SmsService).send as jest.Mock).mockRejectedValueOnce(new Error('boom'));
+      await requestCode().expect(500);
+      await requestCode().expect(200); // immediate retry allowed
+    });
+
+    it('Eskiz login failure surfaces as 503 (no real network call)', async () => {
+      production('live');
+      env.ESKIZ_EMAIL = '';
+      (app.get(SmsService).send as jest.Mock).mockRestore(); // real send → login → missing credentials
+      const res = await requestCode().expect(503);
+      expect(res.body.message).toBe('SMS service is not configured');
+      expect(await prisma.registrationChallenge.count()).toBe(0);
+    });
+
+    it('SMS modes accept only +998 numbers', async () => {
+      production('live');
+      const res = await requestCode('+77011234567').expect(400);
+      expect(res.body.message).toMatch(/Uzbekistan/);
+      expect(sent).toHaveLength(0);
+    });
+
+    it('OTP_EXPIRY_MINUTES and OTP_MAX_ATTEMPTS are configurable', async () => {
+      env = { OTP_EXPIRY_MINUTES: '5', OTP_MAX_ATTEMPTS: '2' };
+      const res = await requestCode().expect(200);
+      expect(res.body.data.expiresIn).toBe(300);
+      const wrong = wrongOf(res.body.data.devCode);
+      expect((await verify(wrong).expect(400)).body.message).toBe('Invalid code. Attempts left: 1');
+      expect((await verify(wrong).expect(400)).body.message).toMatch(/too many wrong attempts/i);
+      await verify(res.body.data.devCode).expect(400);
+    });
   });
 });

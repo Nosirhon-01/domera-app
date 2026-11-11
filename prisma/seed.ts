@@ -15,7 +15,8 @@ async function main() {
 
   // ─── 1. Admin seed ────────────────────────────────────────────────────────
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@domera.com';
-  const adminPhone = process.env.ADMIN_PHONE || '+998900000000';
+  // No default phone: +998900000000 is a typical App Store review number and must stay a USER account
+  const adminPhone = process.env.ADMIN_PHONE || null;
   const adminName = process.env.ADMIN_NAME || 'Admin User';
   const rawAdminPassword = process.env.ADMIN_PASSWORD || 'AdminPassword123!';
 

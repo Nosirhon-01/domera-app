@@ -22,4 +22,10 @@ process.env.AUTH_RATE_LIMIT = process.env.AUTH_RATE_LIMIT || '1000';
 process.env.FIREBASE_SERVICE_ACCOUNT_PATH = '';
 process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = '';
 process.env.OTP_DEV_MODE = 'true';
-for (const k of ['REVIEW_EMAIL', 'REVIEW_PHONE', 'REVIEW_PASSWORD']) process.env[k] = '';
+process.env.SMS_MODE = 'off';
+// Pin values so a developer's .env cannot change test behaviour; tests never reach Eskiz
+process.env.OTP_EXPIRY_MINUTES = '3';
+process.env.OTP_MAX_ATTEMPTS = '5';
+for (const k of ['ESKIZ_EMAIL', 'ESKIZ_PASSWORD']) process.env[k] = '';
+process.env.ESKIZ_BASE_URL = 'http://127.0.0.1:9/eskiz-must-not-be-called';
+for (const k of ['REVIEW_EMAIL', 'REVIEW_PHONE', 'REVIEW_PASSWORD', 'REVIEW_OTP_CODE']) process.env[k] = '';

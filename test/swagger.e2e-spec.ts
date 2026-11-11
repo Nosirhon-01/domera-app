@@ -43,9 +43,18 @@ describe('Swagger document (e2e)', () => {
     expect(props('ErrorResponseDto')).toEqual(expect.arrayContaining(['success', 'message', 'error', 'retryAfter']));
   });
 
-  it('no longer documents the Eskiz OTP endpoints', () => {
-    expect(doc.paths['/api/auth/otp/send']).toBeUndefined();
-    expect(doc.paths['/api/auth/otp/verify']).toBeUndefined();
+  it('documents phone sign-in /auth/otp/send and /auth/otp/verify', () => {
+    const body = (path: string) => (doc.paths[path] as any).post.requestBody.content['application/json'].schema.$ref;
+    expect(body('/api/auth/otp/send')).toBe('#/components/schemas/OtpSendDto');
+    expect(dataRef('/api/auth/otp/send', 'post', '200')).toBe('#/components/schemas/RegisterCodeResponseDto');
+    expect(body('/api/auth/otp/verify')).toBe('#/components/schemas/OtpVerifyDto');
+    expect(dataRef('/api/auth/otp/verify', 'post', '200')).toBe('#/components/schemas/OtpVerifyResponseDto');
+    expect(props('OtpVerifyResponseDto')).toEqual(
+      expect.arrayContaining(['accessToken', 'refreshToken', 'user', 'isNewUser', 'needsName']),
+    );
+    expect(Object.keys((doc.paths['/api/auth/otp/send'] as any).post.responses)).toEqual(
+      expect.arrayContaining(['200', '400', '429', '502', '503']),
+    );
   });
 
   it('documents login/register with the same session shape', () => {

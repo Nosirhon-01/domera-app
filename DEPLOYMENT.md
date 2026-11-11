@@ -219,30 +219,52 @@ Then in `.env` add `TRUST_PROXY=true` and `pm2 restart domera-api --update-env`.
 add `HOST=127.0.0.1` to `.env`, restart PM2, and `ufw deny 3000/tcp` if ufw is on. Until then, old app
 builds keep working over `http://162.35.179.239:3000`.
 
-## 11. Phone registration and the review account
+## 11. Phone sign-in / registration (Eskiz SMS) and the review account
 
-No SMS provider is connected (Eskiz was removed). Phone numbers register in three steps:
+**App sign-in** (the "Kirish" screen) — new numbers get a USER account, no password:
+
+```
+POST /api/auth/otp/send    {"phone":"+998901234567"}  → {phone, expiresIn:180, retryAfter:60, delivery, devCode?}
+POST /api/auth/otp/verify  {"phone":"+998901234567","code":"123456"}
+     → {user, accessToken, refreshToken, isNewUser, needsName}
+       needsName=true → app asks first/last name → PATCH /api/auth/me {"name":"Ali Valiyev"}
+```
+
+**Registration with a password** (optional second flow) in three steps:
 
 ```
 POST /api/auth/register/request-code {"phone":"+998901234567"}
-     → {phone, expiresIn:180, retryAfter:60, devCode?}      409 if the phone is already registered
+     → {phone, expiresIn:180, retryAfter:60, delivery:"sms"|"test"|"none", devCode?}
+       400 bad / non-+998 number · 409 already registered · 429 cooldown · 502 Eskiz rejected · 503 SMS unavailable
 POST /api/auth/register/verify-code  {"phone":"+998901234567","code":"123456"}
      → {verificationToken, expiresIn:600}                   one-time token
 POST /api/auth/register/complete     {"verificationToken":"...","password":"Secret123","passwordConfirmation":"Secret123","name":"Ali"}
      → {user, accessToken, refreshToken}                    same shape as /auth/login
 ```
 
-Limits: code valid 180 s, 60 s between codes, 5 codes per hour per number, 5 wrong attempts per code.
+Limits: code valid `OTP_EXPIRY_MINUTES` (3), 60 s between codes, 5 codes per hour per number,
+`OTP_MAX_ATTEMPTS` (5) wrong attempts per code. A failed SMS does not start the cooldown.
 Only hashes of the code and of the verification token are stored (`registration_challenges`).
 
 | Variable | Purpose |
 |---|---|
-| `OTP_DEV_MODE=true` | Returns the code as `devCode` so the app can show it. **Never in production**: the server refuses to start with `NODE_ENV=production` and `OTP_DEV_MODE=true` |
-| `REVIEW_EMAIL`, `REVIEW_PHONE`, `REVIEW_PASSWORD` | App Store / Play reviewer login via `/auth/login` (email or phone + password). Created (role USER) on every start |
+| `SMS_MODE` | `off` (default) · `test` — Eskiz account in test mode: sends only `ESKIZ_TEST_MESSAGE`, **never the code** · `live` — sends `OTP_MESSAGE_TEMPLATE` with the code |
+| `ESKIZ_EMAIL`, `ESKIZ_PASSWORD` | Eskiz cabinet login. The server logs in itself, caches the token and logs in again before it expires or on 401 |
+| `ESKIZ_FROM` | Sender name, default `4546` |
+| `ESKIZ_BASE_URL` | Default `https://notify.eskiz.uz/api` |
+| `ESKIZ_TEST_MESSAGE` | One of `This is test from Eskiz` · `Bu Eskiz dan test` · `Это тест от Eskiz` |
+| `OTP_MESSAGE_TEMPLATE` | Live SMS text, `{code}` is replaced. Must match the Eskiz-approved template exactly |
+| `OTP_EXPIRY_MINUTES`, `OTP_MAX_ATTEMPTS` | Default 3 and 5 |
+| `OTP_DEV_MODE=true` | Returns the code as `devCode`. **Never in production**: the server refuses to start with `NODE_ENV=production` and `OTP_DEV_MODE=true` |
+| `REVIEW_PHONE`, `REVIEW_OTP_CODE` | Reviewer signs in like a user: this number always accepts this fixed code, no SMS, no limits. Disabled if the number belongs to an admin/manager/agent |
+| `REVIEW_EMAIL`, `REVIEW_PASSWORD` | Reviewer account (role USER) created/updated on every start; also allows `/auth/login` with phone or email + password |
 
-Without an SMS provider and with `OTP_DEV_MODE` off, nobody can receive the code, so **new phone
-registrations are not possible in production** until an SMS provider is connected again. Login with
-password, refresh and all other endpoints are unaffected.
+In production only `SMS_MODE=live` can deliver codes (the review number always works). With `test` or `off`, request-code returns **503**
+("SMS verification is temporarily unavailable") and nothing is sent or stored. Login with password, refresh
+and all other endpoints are unaffected.
+
+Check the setup: `npm run sms:check` (config + Eskiz login, no SMS) and
+`npm run sms:check -- --send +998XXXXXXXXX` (one SMS: the test text in test mode, the OTP template in live mode).
 
 Migration `20261109120000_registration_challenges_drop_otp_codes` drops the old `otp_codes` table
 (short-lived login codes only) and creates `registration_challenges`. Runs with `npx prisma migrate deploy`.

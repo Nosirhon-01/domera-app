@@ -182,11 +182,13 @@ model Message {
   @@map("messages")
 }
 
-// Phone registration challenge: OTP step, then a one-time verification token for the password step.
+// Phone OTP challenge. purpose "register": OTP step, then a one-time verification token for the
+// password step. purpose "login": OTP login (/auth/otp/*), consumed on success.
 // Only hashes are stored (codeHash = HMAC of the 6-digit code, tokenHash = SHA-256 of the token).
 model RegistrationChallenge {
   id             String    @id @default(uuid())
   phone          String
+  purpose        String    @default("register")
   codeHash       String
   attempts       Int       @default(0)
   expiresAt      DateTime

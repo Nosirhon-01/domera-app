@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsIn, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsNumber, Matches, Max, Min, IsOptional, IsString, validateSync } from 'class-validator';
 
 enum Environment {
   Development = 'development',
@@ -63,6 +63,47 @@ class EnvironmentVariables {
   @IsOptional()
   OTP_DEV_MODE?: string;
 
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  @IsOptional()
+  OTP_EXPIRY_MINUTES?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  @IsOptional()
+  OTP_MAX_ATTEMPTS?: number;
+
+  // Eskiz.uz SMS: off (default) | test (account in Eskiz test mode, sends only the test text) | live
+  @IsIn(['off', 'test', 'live'])
+  @IsOptional()
+  SMS_MODE?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_EMAIL?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_PASSWORD?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_FROM?: string;
+
+  @IsString()
+  @IsOptional()
+  ESKIZ_BASE_URL?: string;
+
+  @IsIn(['This is test from Eskiz', 'Bu Eskiz dan test', 'Это тест от Eskiz'])
+  @IsOptional()
+  ESKIZ_TEST_MESSAGE?: string;
+
+  @IsString()
+  @IsOptional()
+  OTP_MESSAGE_TEMPLATE?: string;
+
   // App Store / Play review account
   @IsString()
   @IsOptional()
@@ -80,13 +121,23 @@ class EnvironmentVariables {
   @IsOptional()
   REVIEW_PASSWORD?: string;
 
+  @Matches(/^\d{6}$/, { message: 'REVIEW_OTP_CODE must be 6 digits' })
+  @IsOptional()
+  REVIEW_OTP_CODE?: string;
 
   @IsString()
   @IsOptional()
   HOST?: string;
 }
 
-export function validate(config: Record<string, unknown>) {
+/** "KEY=" in .env means "not set" for these (an empty string would fail their number/enum checks). */
+const EMPTY_MEANS_UNSET = ['REVIEW_OTP_CODE', 'OTP_DEV_MODE', 'OTP_EXPIRY_MINUTES', 'OTP_MAX_ATTEMPTS', 'SMS_MODE', 'ESKIZ_TEST_MESSAGE'];
+
+export function validate(rawConfig: Record<string, unknown>) {
+  const config = { ...rawConfig };
+  for (const key of EMPTY_MEANS_UNSET) {
+    if (typeof config[key] === 'string' && (config[key] as string).trim() === '') delete config[key];
+  }
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });

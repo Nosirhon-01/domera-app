@@ -1,6 +1,6 @@
 # DOMERA backend: production deploy checklist
 
-Eskiz SMS olib tashlangan: telefon bilan ro'yxatdan o'tish 3 bosqichli (kod → tasdiqlash → parol), SMS yuborilmaydi.
+Telefon bilan ro'yxatdan o'tish 3 bosqichli (kod → tasdiqlash → parol). Kod Eskiz SMS orqali yuboriladi (`SMS_MODE=live`).
 Server: `162.35.179.239`, papka `/root/domera-app`, PM2 jarayoni `domera-api`, port `3000`, prefiks `/api`.
 
 > **Qoida:** parol, token, `.env` mazmuni hech qachon kodga, gitga, chatga yoki skrinshotga tushmasin.
@@ -112,35 +112,60 @@ openssl rand -base64 48
 
 > `docker-compose.yml` dagi parollar faqat lokal ishlab chiqish uchun. Productionda ishlatmang.
 
-## 5. Telefon bilan ro'yxatdan o'tish (SMS yo'q)
+## 5. Eskiz SMS va telefon bilan ro'yxatdan o'tish
 
-- [ ] Productionda `.env` da `OTP_DEV_MODE` **yo'q** yoki `false`. `NODE_ENV=production` va `OTP_DEV_MODE=true` bo'lsa server **ishga tushmaydi**
-- [ ] Eski `SMS_PROVIDER`, `ESKIZ_*`, `OTP_MESSAGE_TEMPLATE`, `REVIEW_OTP_CODE` qatorlarini serverdagi `.env` dan o'chiring (endi ishlatilmaydi)
-- ⚠️ SMS provayder ulanmagan va `OTP_DEV_MODE` o'chiq: productionda kodni hech kim ololmaydi, ya'ni **yangi telefon raqam bilan
-  ro'yxatdan o'tish ishlamaydi**. Parol bilan login, refresh va boshqa barcha funksiyalar ishlaydi
-- Limitlar (kodda): kod 180 s amal qiladi, qayta so'rash 60 s dan keyin, raqamga soatiga 5 ta kod, kodga 5 ta urinish,
-  verification token 10 daqiqa va bir martalik
-
-## 6. Review account (App Store / Google Play)
+- [ ] [my.eskiz.uz](https://my.eskiz.uz) da akkaunt, shartnoma va balans bor
+- [ ] Akkaunt **test rejimidan chiqqan** va SMS shabloni moderatsiyadan o'tgan. Matn `OTP_MESSAGE_TEMPLATE` bilan **belgima-belgi bir xil**, kod o'rnida `{code}`
+- [ ] Productionda `.env` da `OTP_DEV_MODE` **yo'q** yoki `false` (`true` bo'lsa server **ishga tushmaydi**)
+- [ ] Eski `SMS_PROVIDER` va `REVIEW_OTP_CODE` qatorlarini o'chiring (endi ishlatilmaydi)
 
 `.env`:
 
 ```
-REVIEW_NAME=App Review
-REVIEW_EMAIL=review@domera.uz
-REVIEW_PASSWORD=<tasodifiy, 12+ belgi>
-REVIEW_PHONE=<siz egalik qiladigan raqam, masalan +99890xxxxxxx>
+SMS_MODE=live
+ESKIZ_EMAIL=<Eskiz kabinetidagi email>
+ESKIZ_PASSWORD=<Eskiz paroli>
+ESKIZ_FROM=4546
+OTP_MESSAGE_TEMPLATE="DOMERA: tasdiqlash kodingiz {code}"
 ```
 
-- [ ] Server har safar ishga tushganda akkauntni yaratadi yoki parolini yangilaydi. Roli `USER`
-- [ ] `REVIEW_EMAIL`/`REVIEW_PHONE` admin, manager yoki agent akkauntiga tegishli bo'lsa, server unga **tegmaydi** va logga xato yozadi. Alohida email va raqam ishlating
-- [ ] Reviewer email + parol yoki telefon + parol bilan `/auth/login` orqali kiradi
+- Eskiz hali **test rejimida** bo'lsa: `SMS_MODE=test`. Bunda faqat Eskiz test matni yuboriladi (kodsiz), productionda
+  `request-code` **503** qaytaradi va yangi raqam bilan ro'yxatdan o'tib bo'lmaydi. Parol bilan login ishlaydi
+- Tekshirish: `npm run sms:check` (faqat login, SMS yo'q), `npm run sms:check -- --send +998XXXXXXXXX` (bitta SMS)
+- Xatolar: Eskiz rad etsa **502**, Eskiz ishlamasa yoki login xato bo'lsa **503**, +998 bo'lmagan raqam **400**. Bu holatlarda cooldown boshlanmaydi
+- Limitlar: kod `OTP_EXPIRY_MINUTES` (3) daqiqa, qayta so'rash 60 s dan keyin, raqamga soatiga 5 ta kod, kodga `OTP_MAX_ATTEMPTS` (5) urinish,
+  verification token 10 daqiqa va bir martalik
+
+## 6. Review account (App Store / Google Play)
+
+Reviewer ilovaga oddiy foydalanuvchi kabi kiradi: **telefon → kod → Tasdiqlash**. SMS yuborilmaydi.
+
+Serverdagi `.env` (gitga yozilmaydi):
+
+```
+REVIEW_NAME=App Review
+REVIEW_PHONE=+998900000000
+REVIEW_OTP_CODE=123456
+REVIEW_PASSWORD=123456
+```
+
+- [ ] **Avval tekshiring**: bu raqam admin/manager/agent'ga tegishli emas (eski seed admin'ga `+998900000000` berardi):
+  `psql "${DATABASE_URL%%\?*}" -tAc "SELECT role FROM users WHERE phone IN ('+998900000000','998900000000')"`
+  Natija bo'sh yoki `USER` bo'lishi kerak. `ADMIN` bo'lsa, admin raqamini o'zgartiring (🔴, avval zaxira):
+  `UPDATE users SET phone = NULL WHERE phone = '+998900000000' AND role = 'ADMIN';`
+  Aks holda server review kodini **o'chiradi** va logga xato yozadi
+- [ ] Server har ishga tushganda akkauntni yaratadi yoki parolini yangilaydi. Roli `USER`, ismi `REVIEW_NAME`
 - [ ] Restartdan keyin logda `Review account created` yoki `Review account ready` chiqadi
-- [ ] Ma'lumotlarni **App Store Connect → App Review Information** va **Play Console → App access** ga kiriting:
-  email (yoki telefon) + parol
-- [ ] Review tugagach: `REVIEW_PASSWORD` ni almashtiring yoki o'chiring, keyin `pm2 restart domera-api --update-env`.
-  `REVIEW_PASSWORD` o'chirilsa, akkaunt qoladi, lekin env bilan sinxronlanmaydi. Uning parolini almashtirish yoki
-  akkauntni o'chirish (admin orqali) kerak.
+- [ ] `REVIEW_PHONE` uchun: SMS yo'q, cooldown/limit yo'q, kod har doim `REVIEW_OTP_CODE`. Eskiz test rejimida bo'lsa ham ishlaydi
+- [ ] **App Store Connect → App Review Information → Sign-in required** va **Play Console → App access** ga yozing:
+  ```
+  Phone: +998 90 000 00 00
+  Code / password: 123456
+  Enter the phone number, tap "Davom etish", enter 123456 and tap "Tasdiqlash". No SMS is sent for this number.
+  ```
+- ⚠️ `123456` oddiy kod: raqamni bilgan har kim bu USER akkauntga kira oladi (e'lon qo'shishi mumkin). Unda
+  maxfiy ma'lumot saqlamang. Review tugagach `REVIEW_OTP_CODE` ni o'chirib `pm2 restart domera-api --update-env` qilsangiz,
+  raqam oddiy SMS rejimiga o'tadi
 
 ## 7. Database migration
 
@@ -182,8 +207,9 @@ Yangi migratsiya `otp_codes` jadvalini o'chiradi (unda faqat 2 daqiqalik login k
 
 ```
 POST /auth/register/request-code { "phone": "+998901234567" }
-  200 → data: { phone, expiresIn: 180, retryAfter: 60, devCode? }   devCode faqat OTP_DEV_MODE=true da
-  400 → raqam noto'g'ri, 409 → raqam allaqachon ro'yxatdan o'tgan, 429 → kutish kerak (retryAfter)
+  200 → data: { phone, expiresIn: 180, retryAfter: 60, delivery: "sms", devCode? }   devCode faqat OTP_DEV_MODE=true da
+  400 → raqam noto'g'ri yoki +998 emas, 409 → raqam allaqachon ro'yxatdan o'tgan, 429 → kutish kerak (retryAfter),
+  502/503 → SMS yuborilmadi, keyinroq qayta urinish mumkin (cooldown boshlanmaydi)
 POST /auth/register/verify-code  { "phone": "+998901234567", "code": "123456" }
   200 → data: { phone, verificationToken, expiresIn: 600 }
   400 → kod noto'g'ri (message da qolgan urinishlar), eskirgan, ishlatilgan yoki 5 urinish tugagan
@@ -196,7 +222,21 @@ POST /auth/register/complete     { "verificationToken": "...", "password": "Secr
 - [ ] Telefon `+998 90 123-45-67`, `998901234567` yoki `901234567` ko'rinishida yuborilishi mumkin. Server o'zi `+998901234567` ga keltiradi
 - [ ] "Qayta yuborish" taymeri: `data.retryAfter` (60). 429 bo'lsa, qolgan soniyalar `retryAfter` maydonida (body ning yuqori darajasida) va `Retry-After` headerida
 - [ ] `POST /auth/register` endi faqat email uchun: telefon yuborilsa 400 qaytadi
-- [ ] `/auth/otp/send` va `/auth/otp/verify` **olib tashlangan** (404). Ilovaning eski versiyalarida OTP login ishlamaydi
+**Telefon bilan kirish (ilovadagi "Kirish" ekrani)** — yangi raqam uchun akkaunt shu yerda ochiladi, parol so'ralmaydi
+
+```
+POST /auth/otp/send    { "phone": "+998901234567" }
+  200 → data: { phone, expiresIn: 180, retryAfter: 60, delivery, devCode? }
+  400 / 429 / 502 / 503 — request-code bilan bir xil
+POST /auth/otp/verify  { "phone": "+998901234567", "code": "123456" }
+  200 → data: { user, accessToken, refreshToken, isNewUser, needsName }
+  400 → kod noto'g'ri / eskirgan / ishlatilgan / urinishlar tugagan, 401 → akkaunt bloklangan
+```
+
+- [ ] "Tasdiqlash" → `/auth/otp/verify`. `needsName: true` bo'lsa **"Ism familiya"** ekrani →
+  `PATCH /auth/me { "name": "Ali Valiyev" }` (2–100 belgi) → bosh sahifa. `false` bo'lsa to'g'ri bosh sahifaga
+- [ ] "Demo rejim: tasdiqlash kodi ..." matnini **faqat javobda `devCode` bo'lsa** ko'rsating (productionda hech qachon kelmaydi)
+- [ ] "Kodni qayta yuborish": `retryAfter` soniyadan keyin faol bo'lsin
 - [ ] Tokenlarni saqlash va yangilash avvalgidek: `POST /auth/refresh`
 - [ ] Email/telefon + parol bilan kirish (`/auth/login`) ishlashda davom etadi
 
@@ -224,8 +264,8 @@ Restart: `pm2 restart domera-api --update-env` (yoki DEPLOYMENT.md §7).
 
 **Funksiyalar** (parolni `read -s` bilan kiriting, terminal tarixiga tushmasin)
 
-- [ ] Review: email + parol bilan login → `role: USER`
-- [ ] Yangi raqam bilan `POST /api/auth/register/request-code` → 200 va javobda `devCode` **yo'q**
+- [ ] Review: `+998900000000` → `/auth/otp/send` → 200, SMS yo'q; `/auth/otp/verify` kod `123456` → token, `role: USER`
+- [ ] O'z raqamingiz bilan `POST /api/auth/register/request-code` → 200, `delivery: "sms"`, javobda `devCode` **yo'q**, SMS 10–30 soniyada keladi va kod `verify-code` da ishlaydi
 - [ ] 60 soniya ichida qayta so'rash → 429
 - [ ] Oddiy USER token bilan `POST /api/properties` → 201, keyin shu e'lonni o'chirish
 - [ ] Yangi ilova build: login, ro'yxatdan o'tish, e'lon qo'shish, rasm yuklash, chat, push bildirishnoma
@@ -233,6 +273,8 @@ Restart: `pm2 restart domera-api --update-env` (yoki DEPLOYMENT.md §7).
 **Kuzatish (birinchi 24 soat)**
 
 - [ ] `pm2 logs domera-api | grep OTP_DEV_MODE`: bo'sh (productionda dev rejim yoqilmagan)
+- [ ] `pm2 logs domera-api | grep -iE 'eskiz'`: `Eskiz rejected SMS`, `Eskiz send:` va `Eskiz login failed` yo'q
+- [ ] Eskiz kabinetida SMS lar `delivered` holatida, balans yetarli
 - [ ] `journalctl -u caddy`: sertifikat bilan bog'liq xato yo'q
 
 **Keyinroq: HTTP ni yopish** (yangi ilova versiyasini foydalanuvchilarning ko'pchiligi o'rnatganidan keyin)

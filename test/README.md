@@ -21,6 +21,7 @@ E2E_DATABASE_URL=postgresql://test:test@127.0.0.1:55432/domera_test npm run test
 | `auth.e2e-spec.ts` | register, login, inactive users, invalid/expired/forged tokens, refresh rotation and concurrent reuse, logout, `/auth/me`, RBAC |
 | `conversations.e2e-spec.ts` | participants vs non-participants, duplicates, unread counts, mark-as-read idempotency, read receipts, device tokens |
 | `properties.e2e-spec.ts` | ownership, filters/pagination, images (delete one keeps the rest, path traversal), uploads, favorites |
-| `registration.e2e-spec.ts` | phone registration: request-code → verify-code → complete, OTP expiry/attempt limit/reuse, cooldown, duplicates, password rules, tokens, production never returns the code |
+| `registration.e2e-spec.ts` | phone registration: request-code → verify-code → complete, OTP expiry/attempt limit/reuse, cooldown, duplicates, password rules, tokens, production never returns the code, SMS modes off/test/live and SMS failures (Eskiz mocked, no real SMS) |
+| `otp-login.e2e-spec.ts` | app sign-in `/auth/otp/*`: new/existing users, needsName + PATCH /auth/me, post and delete own listing, limits, review number with fixed code (never for admins) |
 | `swagger.e2e-spec.ts` | registration/login contract in the OpenAPI document |
 | `throttle.e2e-spec.ts` | login brute-force limit (429) |

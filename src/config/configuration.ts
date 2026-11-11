@@ -14,7 +14,7 @@ export default () => ({
   admin: {
     name: process.env.ADMIN_NAME || 'Admin User',
     email: process.env.ADMIN_EMAIL || 'admin@domera.com',
-    phone: process.env.ADMIN_PHONE || '+998900000000',
+    phone: process.env.ADMIN_PHONE || null,
     password: process.env.ADMIN_PASSWORD || 'AdminPassword123!',
   },
   cors: {

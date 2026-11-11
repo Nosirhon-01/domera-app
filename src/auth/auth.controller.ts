@@ -4,6 +4,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ApiEnvelope, ApiErrors } from '../common/swagger/api-responses';
 import {
   AuthSessionResponseDto,
+  OtpVerifyResponseDto,
   ProfileUpdateResponseDto,
   RegisterCodeResponseDto,
   RegisterVerifyResponseDto,
@@ -17,6 +18,8 @@ import { LogoutDto } from './dto/logout.dto';
 import { UpdateMeDto } from './dto/update-me.dto';
 import { RegisterCompleteDto, RegisterRequestCodeDto, RegisterVerifyCodeDto } from './dto/registration.dto';
 import { RegistrationService } from './registration/registration.service';
+import { OtpSendDto, OtpVerifyDto } from './dto/otp.dto';
+import { OtpLoginService } from './otp/otp-login.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -30,6 +33,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly registrationService: RegistrationService,
+    private readonly otpLoginService: OtpLoginService,
   ) {}
 
   // Brute-force protection: limited attempts per client IP
@@ -61,21 +65,68 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
+  @Post('otp/send')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Sign in with phone, step 1: send a 6-digit code (existing and new numbers)',
+    description:
+      'SMS_MODE=live: code sent by Eskiz SMS. Otherwise only OTP_DEV_MODE (never production) returns it as devCode; ' +
+      'without either → 503. REVIEW_PHONE gets REVIEW_OTP_CODE without SMS or limits. ' +
+      'Code valid OTP_EXPIRY_MINUTES (3), 60 s between codes, 5 codes per hour per number.',
+  })
+  @ApiEnvelope(200, 'Code sent', RegisterCodeResponseDto)
+  @ApiErrors(
+    [400, 'Invalid phone number, or not a +998 number while SMS is used'],
+    [429, 'Resend cooldown or hourly limit (body.retryAfter + Retry-After header), or IP limit'],
+    [502, 'Eskiz rejected the SMS. Safe to retry later'],
+    [503, 'SMS delivery unavailable (SMS not live / not configured, Eskiz unreachable). Safe to retry later'],
+  )
+  sendOtp(@Body() dto: OtpSendDto) {
+    return this.otpLoginService.send(dto);
+  }
+
+  @Post('otp/verify')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Sign in with phone, step 2: check the code and log in',
+    description:
+      'Existing number: logs in (isNewUser=false). New number: creates a USER account (isNewUser=true). ' +
+      'needsName=true: show the first/last name screen, then PATCH /auth/me { name }. ' +
+      'Tokens are the same as from /auth/login and work with /auth/refresh.',
+  })
+  @ApiEnvelope(200, 'Login successful', OtpVerifyResponseDto)
+  @ApiErrors(
+    [400, 'Wrong, expired, already used or not requested code; too many wrong attempts'],
+    [401, 'Account is deactivated'],
+    [429, 'Too many attempts from this IP'],
+  )
+  verifyOtp(@Body() dto: OtpVerifyDto) {
+    return this.otpLoginService.verify(dto);
+  }
+
   @Post('register/request-code')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: AUTH_RATE_LIMIT, ttl: AUTH_RATE_TTL_MS } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Step 1: create a 6-digit registration code for a new phone number',
+    summary: 'Step 1: send a 6-digit registration code to a new phone number',
     description:
-      'No SMS is sent. With OTP_DEV_MODE=true (never in production) the code is returned as devCode. ' +
-      'Code valid 180 s, 60 s between codes, 5 codes per hour per number; a new code invalidates the previous one.',
+      'SMS_MODE=live: the code is sent by Eskiz SMS. SMS_MODE=test: only the Eskiz test text is sent (no code). ' +
+      'With OTP_DEV_MODE=true (never in production) the code is also returned as devCode. ' +
+      'Code valid OTP_EXPIRY_MINUTES (3), 60 s between codes, 5 codes per hour per number; ' +
+      'a new code invalidates the previous one. A failed SMS does not start the cooldown.',
   })
-  @ApiEnvelope(200, 'Code created', RegisterCodeResponseDto)
+  @ApiEnvelope(200, 'Code sent', RegisterCodeResponseDto)
   @ApiErrors(
-    [400, 'Invalid phone number'],
+    [400, 'Invalid phone number, or not a +998 number while SMS is used'],
     [409, 'Phone number already registered'],
     [429, 'Resend cooldown or hourly limit (body.retryAfter + Retry-After header), or IP limit'],
+    [502, 'Eskiz rejected the SMS (template not approved, no balance, ...). Safe to retry later'],
+    [503, 'SMS delivery unavailable (SMS not live / not configured, Eskiz unreachable or login failed)'],
   )
   requestRegistrationCode(@Body() dto: RegisterRequestCodeDto) {
     return this.registrationService.requestCode(dto);
@@ -87,7 +138,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Step 2: check the 6-digit code',
-    description: 'Returns a one-time verificationToken valid 10 minutes. 5 wrong attempts lock the code.',
+    description: 'Returns a one-time verificationToken valid 10 minutes. OTP_MAX_ATTEMPTS (5) wrong attempts lock the code.',
   })
   @ApiEnvelope(200, 'Phone verified', RegisterVerifyResponseDto)
   @ApiErrors(
